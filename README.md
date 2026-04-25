@@ -38,6 +38,17 @@ python script_extractor.py mi_documento.pdf
 ```
 El script generará un archivo llamado `mi_documento_procesado.md` en la misma carpeta.
 
+### Procesador masivo
+Para ejecutar el script de forma automática en todos los pdf de una carpeta, necesitas:
+- Tener `script_extractor.py` y `procesador_masivo.py` en la misma carpeta
+- Ubicarte por consola en dicha carpeta
+- Tener una carpeta con los pdf a procesar
+- Ejecutar el siguiente comando
+```
+python masivo.py /path_carpeta 
+```
+Los resultados se guardarán en una nueva carpeta llamada `resultados_extractor`, y se generará un `errores_extraccion.log` para loguear cualquier error que pueda surgir en el proceso.
+
 ## 📁 Estructura del Proyecto
 - `script_unificado.py`: El core del proyecto que contiene ambas fases de procesamiento.
 
