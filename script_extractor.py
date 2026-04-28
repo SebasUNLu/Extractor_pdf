@@ -97,9 +97,48 @@ def extraer_a_markdown_directo(buffer_pdf, nombre_original):
         tabs = pagina.find_tables(strategy="lines", snap_tolerance=4, intersection_tolerance=3)
         areas_tablas = [t.bbox for t in tabs.tables]
 
-        bloques = pagina.get_text("dict")["blocks"]
-        bloques.sort(key=lambda b: (b["bbox"][1], b["bbox"][0]))
+        #bloques = pagina.get_text("dict")["blocks"]
+        #bloques.sort(key=lambda b: (b["bbox"][1], b["bbox"][0]))
+        bloques_crudos = pagina.get_text("dict")["blocks"]
+        
+        # 1. Pre-ordenar por Y para asegurar un orden de lectura inicial
+        bloques_ordenados_y = sorted(bloques_crudos, key=lambda b: (b["bbox"][1], b["bbox"][0]))
+        
+        grupos = []
+        for b in bloques_ordenados_y:
+            # Si no es texto, lo dejamos en su propio grupo
+            if b.get("type", 1) != 0: 
+                grupos.append([b])
+                continue
+                
+            añadido = False
+            for g in grupos:
+                if g[-1].get("type", 1) != 0: continue
+                ultimo_b = g[-1]
+                
+                # Distancia vertical entre la base del bloque anterior y el techo del actual
+                dist_y = b["bbox"][1] - ultimo_b["bbox"][3]
+                
+                # Solapamiento horizontal (para saber si están en la misma "columna")
+                x_overlap = max(0, min(b["bbox"][2], ultimo_b["bbox"][2]) - max(b["bbox"][0], ultimo_b["bbox"][0]))
+                
+                # Si hay solapamiento horizontal y están cerca verticalmente, unimos el texto a esa columna
+                if -15 <= dist_y <= 60 and x_overlap > 10:
+                    g.append(b)
+                    añadido = True
+                    break
+            
+            if not añadido:
+                grupos.append([b])
 
+        # 2. Ordenar los grupos resultantes: primero por franja vertical (con tolerancia de 20px) y luego de izquierda a derecha
+        grupos.sort(key=lambda g: (g[0]["bbox"][1] // 20, g[0]["bbox"][0]))
+
+        # 3. Aplanar la lista para que el resto del script lo lea columna por columna
+        bloques = [b for g in grupos for b in g]
+        
+        
+        #
         tablas_procesadas = []
         
         for b in bloques:
