@@ -63,6 +63,7 @@ def extraer_a_markdown_directo(buffer_pdf, nombre_original):
     patron_resuelve = re.compile(r'^(R\s*E\s*S\s*U\s*E\s*L\s*V\s*E|D\s*I\s*S\s*P\s*O\s*N\s*E|D\s*E\s*C\s*R\s*E\s*T\s*A)[:\s]*', re.IGNORECASE)
     patron_articulo = re.compile(r'^(ART[IÍ]CULO|Art[ií]culo)\s*(\d+)([:\s\.]*)')
     patron_folio = re.compile(r'^\s*-\s*\d+\s*-\s*$')
+    patron_anexo = re.compile(r'^(ANEXO|Anexo)\s*(\d+|[IVXLCDM]+)?')
     patron_titulo_norma = re.compile(r'(DISPOSICIÓN|RESOLUCIÓN)\s+([A-Z\-]+):\s*(\d+)-(\d+)', re.IGNORECASE)
     
     titulo_encontrado = None
@@ -142,6 +143,8 @@ def extraer_a_markdown_directo(buffer_pdf, nombre_original):
                     texto_unido = f"{encabezado}\n" + patron_resuelve.sub("", texto_unido).strip()
                 elif m := patron_articulo.match(texto_unido):
                     texto_unido = f"### Artículo {m.group(2)}\n" + patron_articulo.sub("", texto_unido).strip()
+                elif patron_anexo.match(texto_unido):
+                    texto_unido = "# " + texto_unido
                 
                 
                 # Formato de listas[cite: 5]
