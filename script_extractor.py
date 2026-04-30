@@ -119,12 +119,10 @@ def extraer_a_markdown_directo(buffer_pdf, nombre_original):
                     break
             
             if not esta_en_tabla:
-                # --- NUEVA LÓGICA DE SUBTÍTULOS POR SPANS EXACTOS ---
                 textos_subtitulo = []
                 textos_cuerpo = []
                 leyendo_subtitulo = False
                 
-                # Buscamos el primer fragmento válido de texto para saber si empieza en negrita
                 primer_span = None
                 for linea in b["lines"]:
                     for span in linea["spans"]:
@@ -140,17 +138,14 @@ def extraer_a_markdown_directo(buffer_pdf, nombre_original):
                     if (flags & 16) != 0 or "bold" in font or "black" in font or "heavy" in font:
                         leyendo_subtitulo = True
 
-                # Leemos todo el bloque fragmento a fragmento (span a span)
                 for linea in b["lines"]:
                     for span in linea["spans"]:
                         txt_raw = span["text"]
                         txt_strip = txt_raw.strip()
                         
-                        # Filtramos ruido directamente
                         if "///" in txt_strip or patron_folio.match(txt_strip):
                             continue
                             
-                        # Si son espacios, mantenemos la estructura enviándolo a la bolsa actual
                         if not txt_strip:
                             if leyendo_subtitulo: textos_subtitulo.append(txt_raw)
                             else: textos_cuerpo.append(txt_raw)
@@ -164,7 +159,6 @@ def extraer_a_markdown_directo(buffer_pdf, nombre_original):
                             if es_bold:
                                 textos_subtitulo.append(txt_raw)
                             else:
-                                # Apenas se pierde la negrita, todo el resto va al cuerpo principal
                                 leyendo_subtitulo = False
                                 textos_cuerpo.append(txt_raw)
                         else:
@@ -175,7 +169,6 @@ def extraer_a_markdown_directo(buffer_pdf, nombre_original):
                 texto_sub = re.sub(r'\s{2,}', ' ', texto_sub).strip()
                 texto_cuerpo = re.sub(r'\s{2,}', ' ', texto_cuerpo).strip()
                 
-                # Reconstruimos la frase completa sin formato para que la regex trabaje igual que antes
                 texto_unido_plano = " ".join([texto_sub, texto_cuerpo]).strip()
                 texto_unido_plano = re.sub(r'\s{2,}', ' ', texto_unido_plano).strip()
 
@@ -256,26 +249,46 @@ def extraer_a_markdown_directo(buffer_pdf, nombre_original):
                     elif m := patron_articulo.match(texto_unido_plano):
                         texto_unido = f"### Artículo {m.group(2)}\n" + patron_articulo.sub("", texto_unido_plano).strip()
                     else:
-                        # --- NUEVA LÓGICA: Procesamiento de subtítulos inteligente ---
+                        
+                        # --- NUEVA LÓGICA DE LISTAS INLINE ---
+                        # NUEVA FUNCIÓN INTERNA: Evalúa y separa el texto en listas si detecta viñetas
+                        def procesar_vinetas_inline(texto):
+                            if any(c in texto for c in ['·', '●', '•']):
+                                # NUEVA VARIABLE: fragmentos (separa el string por el símbolo de viñeta)
+                                fragmentos = re.split(r'[·●•]', texto)
+                                # NUEVA VARIABLE: lineas_procesadas (lista donde agruparemos los items resultantes)
+                                lineas_procesadas = []
+                                
+                                frag_inicial = fragmentos[0].strip()
+                                if frag_inicial:
+                                    if patron_alfabetico.match(frag_inicial):
+                                        lineas_procesadas.append("- " + frag_inicial)
+                                    else:
+                                        # Texto introductorio que venía antes del primer punto
+                                        lineas_procesadas.append(frag_inicial)
+                                
+                                for frag in fragmentos[1:]:
+                                    frag_limpio = frag.strip()
+                                    if frag_limpio:
+                                        lineas_procesadas.append("- " + frag_limpio)
+                                
+                                return "\n".join(lineas_procesadas)
+                            elif patron_alfabetico.match(texto):
+                                return "- " + texto
+                            return texto
+                        # ------------------------------------
+
                         if texto_sub and len(texto_sub) > 2:
                             if texto_cuerpo:
-                                # Estaba unido en el mismo bloque, los separamos
-                                texto_unido = f"## {texto_sub}\n\n{texto_cuerpo}"
+                                # NUEVA VARIABLE: cuerpo_procesado (Aplica el formateo de listas solo al cuerpo)
+                                cuerpo_procesado = procesar_vinetas_inline(texto_cuerpo)
+                                texto_unido = f"## {texto_sub}\n\n{cuerpo_procesado}"
                             elif len(texto_sub) < 150 and not texto_sub.endswith('.'):
-                                # Era un bloque corto en negrita puro (un subtítulo solitario)
                                 texto_unido = f"## {texto_sub}"
                             else:
-                                # Es un párrafo gigante en negrita, se trata como texto normal
-                                texto_unido = texto_unido_plano
+                                texto_unido = procesar_vinetas_inline(texto_unido_plano)
                         else:
-                            texto_unido = texto_unido_plano
-                            
-                        # Formato de listas
-                        if any(texto_unido.startswith(c) for c in ['·', '●', '•']) or patron_alfabetico.match(texto_unido):
-                            if not texto_unido.startswith("## "):
-                                linea_lista = texto_unido
-                                for c in ['·', '●', '•']: linea_lista = linea_lista.replace(c, '', 1).strip()
-                                texto_unido = "- " + linea_lista
+                            texto_unido = procesar_vinetas_inline(texto_unido_plano)
                 
                 contenido_final.append(texto_unido)
 
