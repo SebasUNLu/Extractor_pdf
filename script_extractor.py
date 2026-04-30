@@ -68,7 +68,7 @@ def extraer_a_markdown_directo(buffer_pdf, nombre_original):
     for i, pagina in enumerate(doc):
         cp = pagina.cropbox
         alto = cp.height
-        margen_superior = cp.y0 + (alto * 0.15)
+        margen_superior = cp.y0 + (alto * 0.20)
         margen_inferior = cp.y0 + (alto * 0.96)
 
         tabs = pagina.find_tables(strategy="lines", snap_tolerance=4)
@@ -119,33 +119,75 @@ def extraer_a_markdown_directo(buffer_pdf, nombre_original):
                     break
             
             if not esta_en_tabla:
-                lineas_bloque = []
-                es_negrita = False
+                # --- NUEVA LÓGICA DE SUBTÍTULOS POR SPANS EXACTOS ---
+                textos_subtitulo = []
+                textos_cuerpo = []
+                leyendo_subtitulo = False
                 
-                if b["lines"] and b["lines"][0]["spans"]:
-                    span_uno = b["lines"][0]["spans"][0]
-                    if (span_uno.get("flags", 0) & 28) or (span_uno.get("char_flags", 0) & 24):
-                        es_negrita = True
-
+                # Buscamos el primer fragmento válido de texto para saber si empieza en negrita
+                primer_span = None
                 for linea in b["lines"]:
-                    txt = " ".join([s["text"].strip() for s in linea["spans"] if s["text"].strip()])
-                    if txt and "///" not in txt and not patron_folio.match(txt):
-                        lineas_bloque.append(txt)
+                    for span in linea["spans"]:
+                        txt_limpio = span["text"].strip()
+                        if txt_limpio and "///" not in txt_limpio and not patron_folio.match(txt_limpio):
+                            primer_span = span
+                            break
+                    if primer_span: break
                 
-                if not lineas_bloque: continue
+                if primer_span:
+                    flags = primer_span.get("flags", 0)
+                    font = primer_span.get("font", "").lower()
+                    if (flags & 16) != 0 or "bold" in font or "black" in font or "heavy" in font:
+                        leyendo_subtitulo = True
 
-                texto_unido = " ".join(lineas_bloque).strip()
-                texto_unido = re.sub(r'\s{2,}', ' ', texto_unido).strip()
+                # Leemos todo el bloque fragmento a fragmento (span a span)
+                for linea in b["lines"]:
+                    for span in linea["spans"]:
+                        txt_raw = span["text"]
+                        txt_strip = txt_raw.strip()
+                        
+                        # Filtramos ruido directamente
+                        if "///" in txt_strip or patron_folio.match(txt_strip):
+                            continue
+                            
+                        # Si son espacios, mantenemos la estructura enviándolo a la bolsa actual
+                        if not txt_strip:
+                            if leyendo_subtitulo: textos_subtitulo.append(txt_raw)
+                            else: textos_cuerpo.append(txt_raw)
+                            continue
+                        
+                        flags = span.get("flags", 0)
+                        font = span.get("font", "").lower()
+                        es_bold = (flags & 16) != 0 or "bold" in font or "black" in font or "heavy" in font
+                        
+                        if leyendo_subtitulo:
+                            if es_bold:
+                                textos_subtitulo.append(txt_raw)
+                            else:
+                                # Apenas se pierde la negrita, todo el resto va al cuerpo principal
+                                leyendo_subtitulo = False
+                                textos_cuerpo.append(txt_raw)
+                        else:
+                            textos_cuerpo.append(txt_raw)
+
+                texto_sub = "".join(textos_subtitulo).strip()
+                texto_cuerpo = "".join(textos_cuerpo).strip()
+                texto_sub = re.sub(r'\s{2,}', ' ', texto_sub).strip()
+                texto_cuerpo = re.sub(r'\s{2,}', ' ', texto_cuerpo).strip()
+                
+                # Reconstruimos la frase completa sin formato para que la regex trabaje igual que antes
+                texto_unido_plano = " ".join([texto_sub, texto_cuerpo]).strip()
+                texto_unido_plano = re.sub(r'\s{2,}', ' ', texto_unido_plano).strip()
 
                 if not titulo_encontrado:
-                    match = patron_titulo_norma.search(texto_unido)
+                    match = patron_titulo_norma.search(texto_unido_plano)
                     if match:
                         titulo_encontrado = f"# {match.group(1).capitalize()} {match.group(2)} - {int(match.group(3))}/{match.group(4)}"
                         continue
 
                 # --- LÓGICA DE UNIÓN DE ANEXOS ---
                 if es_anexo:
-                    titulo_anexo_completo = [texto_unido]
+                    titulo_anexo_completo = [texto_unido_plano]
                     cursor_idx = idx + 1
                     y1_prev = y1
                     
@@ -190,37 +232,50 @@ def extraer_a_markdown_directo(buffer_pdf, nombre_original):
                         else:
                             break
                     
-                    # --- NUEVA LÓGICA PARA INSERTAR EL GUION ("-") DE FORMA INTELIGENTE ---
                     texto_unido = "# " + titulo_anexo_completo[0]
                     guion_puesto = False
                     for parte in titulo_anexo_completo[1:]:
-                        # Evita poner guion a conectores como "DE LA RESOLUCION"
                         if not guion_puesto and not re.search(r'^(DE\s+LA|DEL)\b', parte, re.IGNORECASE):
                             texto_unido += " - " + parte
                             guion_puesto = True
                         else:
                             texto_unido += " " + parte
-                    # ----------------------------------------------------------------------
                     
                     contenido_final.append(texto_unido)
                     continue
                 # ----------------------------------------
                 
                 if not es_anexo:
-                    if patron_visto.match(texto_unido):
-                        texto_unido = "## Visto\n" + patron_visto.sub("", texto_unido).strip()
-                    elif patron_considerando.match(texto_unido):
-                        texto_unido = "## Considerando\n" + patron_considerando.sub("", texto_unido).strip()
-                    elif m_res := patron_resuelve.match(texto_unido):
+                    if patron_visto.match(texto_unido_plano):
+                        texto_unido = "## Visto\n" + patron_visto.sub("", texto_unido_plano).strip()
+                    elif patron_considerando.match(texto_unido_plano):
+                        texto_unido = "## Considerando\n" + patron_considerando.sub("", texto_unido_plano).strip()
+                    elif m_res := patron_resuelve.match(texto_unido_plano):
                         encabezado = "## Parte dispositiva" if "DISPONE" in m_res.group(1).upper() else "## Parte resolutiva"
-                        texto_unido = f"{encabezado}\n" + patron_resuelve.sub("", texto_unido).strip()
-                    elif m := patron_articulo.match(texto_unido):
-                        texto_unido = f"### Artículo {m.group(2)}\n" + patron_articulo.sub("", texto_unido).strip()
-                    elif not texto_unido.startswith("#"): 
+                        texto_unido = f"{encabezado}\n" + patron_resuelve.sub("", texto_unido_plano).strip()
+                    elif m := patron_articulo.match(texto_unido_plano):
+                        texto_unido = f"### Artículo {m.group(2)}\n" + patron_articulo.sub("", texto_unido_plano).strip()
+                    else:
+                        # --- NUEVA LÓGICA: Procesamiento de subtítulos inteligente ---
+                        if texto_sub and len(texto_sub) > 2:
+                            if texto_cuerpo:
+                                # Estaba unido en el mismo bloque, los separamos
+                                texto_unido = f"## {texto_sub}\n\n{texto_cuerpo}"
+                            elif len(texto_sub) < 150 and not texto_sub.endswith('.'):
+                                # Era un bloque corto en negrita puro (un subtítulo solitario)
+                                texto_unido = f"## {texto_sub}"
+                            else:
+                                # Es un párrafo gigante en negrita, se trata como texto normal
+                                texto_unido = texto_unido_plano
+                        else:
+                            texto_unido = texto_unido_plano
+                            
+                        # Formato de listas
                         if any(texto_unido.startswith(c) for c in ['·', '●', '•']) or patron_alfabetico.match(texto_unido):
-                            linea_lista = texto_unido
-                            for c in ['·', '●', '•']: linea_lista = linea_lista.replace(c, '', 1).strip()
-                            texto_unido = "- " + linea_lista
+                            if not texto_unido.startswith("## "):
+                                linea_lista = texto_unido
+                                for c in ['·', '●', '•']: linea_lista = linea_lista.replace(c, '', 1).strip()
+                                texto_unido = "- " + linea_lista
                 
                 contenido_final.append(texto_unido)
 
