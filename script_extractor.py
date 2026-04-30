@@ -60,6 +60,8 @@ def extraer_a_markdown_directo(buffer_pdf, nombre_original):
     patron_resuelve = re.compile(r'^(R\s*E\s*S\s*U\s*E\s*L\s*V\s*E|D\s*I\s*S\s*P\s*O\s*N\s*E|D\s*E\s*C\s*R\s*E\s*T\s*A)[:\s]*', re.IGNORECASE)
     patron_articulo = re.compile(r'^(ART[IÍ]CULO|Art[ií]culo)\s*(\d+)([:\s\.]*)')
     patron_folio = re.compile(r'^\s*-\s*\d+\s*-\s*$')
+    # NUEVO PATRÓN: Para ignorar numeración "1 / 2", "2/2", etc.
+    patron_paginacion = re.compile(r'^\s*\d+\s*/\s*\d+\s*$')
     patron_anexo_inicio = re.compile(r'^\s*(ANEXO|Anexo)\b', re.IGNORECASE)
     patron_titulo_norma = re.compile(r'(DISPOSICIÓN|RESOLUCIÓN)\s+([A-Z\-]+):\s*(\d+)-(\d+)', re.IGNORECASE)
     
@@ -68,6 +70,7 @@ def extraer_a_markdown_directo(buffer_pdf, nombre_original):
     for i, pagina in enumerate(doc):
         cp = pagina.cropbox
         alto = cp.height
+        
         margen_superior = cp.y0 + (alto * 0.20)
         margen_inferior = cp.y0 + (alto * 0.96)
 
@@ -79,6 +82,7 @@ def extraer_a_markdown_directo(buffer_pdf, nombre_original):
         bloques.sort(key=lambda b: (b["bbox"][1], b["bbox"][0]))
 
         indices_saltados = set()
+        primer_bloque_pagina = True
 
         for idx, b in enumerate(bloques):
             if b["type"] != 0 or idx in indices_saltados: continue
@@ -89,7 +93,8 @@ def extraer_a_markdown_directo(buffer_pdf, nombre_original):
             lineas_temp = []
             for linea in b["lines"]:
                 txt_temp = " ".join([s["text"].strip() for s in linea["spans"] if s["text"].strip()])
-                if txt_temp and "///" not in txt_temp and not patron_folio.match(txt_temp):
+                # AÑADIDO: Exclusión de patron_paginacion
+                if txt_temp and "///" not in txt_temp and not patron_folio.match(txt_temp) and not patron_paginacion.match(txt_temp):
                     lineas_temp.append(txt_temp)
             texto_temp = " ".join(lineas_temp).strip()
             texto_temp = re.sub(r'\s{2,}', ' ', texto_temp).strip()
@@ -116,6 +121,7 @@ def extraer_a_markdown_directo(buffer_pdf, nombre_original):
                                 contenido_final.append("\n" + df.to_csv(sep="|", index=False) + "\n")
                         tablas_procesadas.append(idx_tab)
                     esta_en_tabla = True
+                    primer_bloque_pagina = False
                     break
             
             if not esta_en_tabla:
@@ -127,7 +133,8 @@ def extraer_a_markdown_directo(buffer_pdf, nombre_original):
                 for linea in b["lines"]:
                     for span in linea["spans"]:
                         txt_limpio = span["text"].strip()
-                        if txt_limpio and "///" not in txt_limpio and not patron_folio.match(txt_limpio):
+                        # AÑADIDO: Exclusión de patron_paginacion
+                        if txt_limpio and "///" not in txt_limpio and not patron_folio.match(txt_limpio) and not patron_paginacion.match(txt_limpio):
                             primer_span = span
                             break
                     if primer_span: break
@@ -143,7 +150,8 @@ def extraer_a_markdown_directo(buffer_pdf, nombre_original):
                         txt_raw = span["text"]
                         txt_strip = txt_raw.strip()
                         
-                        if "///" in txt_strip or patron_folio.match(txt_strip):
+                        # AÑADIDO: Exclusión de patron_paginacion
+                        if "///" in txt_strip or patron_folio.match(txt_strip) or patron_paginacion.match(txt_strip):
                             continue
                             
                         if not txt_strip:
@@ -197,7 +205,8 @@ def extraer_a_markdown_directo(buffer_pdf, nombre_original):
                         texto_sig = " ".join([" ".join([s["text"].strip() for s in l["spans"] if s["text"].strip()]) for l in b_sig["lines"]]).strip()
                         texto_sig = re.sub(r'\s{2,}', ' ', texto_sig).strip()
 
-                        if "///" in texto_sig or patron_folio.match(texto_sig) or not texto_sig:
+                        # AÑADIDO: Exclusión de patron_paginacion
+                        if "///" in texto_sig or patron_folio.match(texto_sig) or patron_paginacion.match(texto_sig) or not texto_sig:
                             indices_saltados.add(cursor_idx)
                             cursor_idx += 1
                             continue
@@ -235,6 +244,7 @@ def extraer_a_markdown_directo(buffer_pdf, nombre_original):
                             texto_unido += " " + parte
                     
                     contenido_final.append(texto_unido)
+                    primer_bloque_pagina = False
                     continue
                 # ----------------------------------------
                 
@@ -249,14 +259,9 @@ def extraer_a_markdown_directo(buffer_pdf, nombre_original):
                     elif m := patron_articulo.match(texto_unido_plano):
                         texto_unido = f"### Artículo {m.group(2)}\n" + patron_articulo.sub("", texto_unido_plano).strip()
                     else:
-                        
-                        # --- NUEVA LÓGICA DE LISTAS INLINE ---
-                        # NUEVA FUNCIÓN INTERNA: Evalúa y separa el texto en listas si detecta viñetas
                         def procesar_vinetas_inline(texto):
                             if any(c in texto for c in ['·', '●', '•']):
-                                # NUEVA VARIABLE: fragmentos (separa el string por el símbolo de viñeta)
                                 fragmentos = re.split(r'[·●•]', texto)
-                                # NUEVA VARIABLE: lineas_procesadas (lista donde agruparemos los items resultantes)
                                 lineas_procesadas = []
                                 
                                 frag_inicial = fragmentos[0].strip()
@@ -264,7 +269,6 @@ def extraer_a_markdown_directo(buffer_pdf, nombre_original):
                                     if patron_alfabetico.match(frag_inicial):
                                         lineas_procesadas.append("- " + frag_inicial)
                                     else:
-                                        # Texto introductorio que venía antes del primer punto
                                         lineas_procesadas.append(frag_inicial)
                                 
                                 for frag in fragmentos[1:]:
@@ -276,11 +280,9 @@ def extraer_a_markdown_directo(buffer_pdf, nombre_original):
                             elif patron_alfabetico.match(texto):
                                 return "- " + texto
                             return texto
-                        # ------------------------------------
 
                         if texto_sub and len(texto_sub) > 2:
                             if texto_cuerpo:
-                                # NUEVA VARIABLE: cuerpo_procesado (Aplica el formateo de listas solo al cuerpo)
                                 cuerpo_procesado = procesar_vinetas_inline(texto_cuerpo)
                                 texto_unido = f"## {texto_sub}\n\n{cuerpo_procesado}"
                             elif len(texto_sub) < 150 and not texto_sub.endswith('.'):
@@ -290,9 +292,27 @@ def extraer_a_markdown_directo(buffer_pdf, nombre_original):
                         else:
                             texto_unido = procesar_vinetas_inline(texto_unido_plano)
                 
+                if primer_bloque_pagina and contenido_final:
+                    ultimo_bloque = contenido_final[-1].rstrip()
+                    lineas_ultimo = [l for l in ultimo_bloque.split('\n') if l.strip()]
+                    
+                    if lineas_ultimo:
+                        ultima_linea = lineas_ultimo[-1].strip()
+                        
+                        if (not ultima_linea.endswith('.') and 
+                            not ultima_linea.endswith(':') and 
+                            not ultima_linea.startswith('#') and 
+                            not ultima_linea.startswith('|') and 
+                            not texto_unido.startswith('#') and 
+                            not texto_unido.startswith('|') and 
+                            not texto_unido.startswith('- ')):
+                            
+                            contenido_final[-1] = ultimo_bloque + " " + texto_unido
+                            primer_bloque_pagina = False
+                            continue
+                
                 contenido_final.append(texto_unido)
-
-        contenido_final.append("\n")
+                primer_bloque_pagina = False
 
     doc.close()
     if titulo_encontrado: contenido_final.insert(0, titulo_encontrado)
