@@ -172,8 +172,8 @@ def extraer_a_markdown_directo(buffer_pdf, nombre_original):
                         else:
                             textos_cuerpo.append(txt_raw)
 
-                texto_sub = "".join(textos_subtitulo).strip()
-                texto_cuerpo = "".join(textos_cuerpo).strip()
+                texto_sub = " ".join(textos_subtitulo).strip()
+                texto_cuerpo = " ".join(textos_cuerpo).strip()
                 texto_sub = re.sub(r'\s{2,}', ' ', texto_sub).strip()
                 texto_cuerpo = re.sub(r'\s{2,}', ' ', texto_cuerpo).strip()
                 
@@ -310,7 +310,6 @@ def extraer_a_markdown_directo(buffer_pdf, nombre_original):
                             contenido_final[-1] = ultimo_bloque + " " + texto_unido
                             primer_bloque_pagina = False
                             continue
-                
                 contenido_final.append(texto_unido)
                 primer_bloque_pagina = False
 
