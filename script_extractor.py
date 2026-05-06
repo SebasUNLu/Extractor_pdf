@@ -5,6 +5,7 @@ import os
 import time
 import re
 import io
+import json  # NUEVO: Importamos json para la creación del metadata
 
 def aplanar_y_limpiar_avanzado(ruta_entrada):
     """
@@ -55,17 +56,40 @@ def extraer_a_markdown_directo(buffer_pdf, nombre_original):
     contenido_final = []
 
     patron_alfabetico = re.compile(r'^[a-zA-Z]\.\s')
-    patron_visto = re.compile(r'^(VISTO|Visto)[:\s]*')
-    patron_considerando = re.compile(r'^(CONSIDERANDO|Considerando)[:\s]*')
-    patron_resuelve = re.compile(r'^(R\s*E\s*S\s*U\s*E\s*L\s*V\s*E|D\s*I\s*S\s*P\s*O\s*N\s*E|D\s*E\s*C\s*R\s*E\s*T\s*A)[:\s]*', re.IGNORECASE)
-    patron_articulo = re.compile(r'^(ART[IÍ]CULO|Art[ií]culo)\s*(\d+)([:\s\.]*)')
+    
+    patron_visto = re.compile(r'\b(VISTO\b[\s:]*|Visto\b\s*:[\s]*)')
+    patron_considerando = re.compile(r'\b(CONSIDERANDO\b[\s:]*|Considerando\b\s*:[\s]*)')
+    patron_resuelve = re.compile(r'\b(R\s*E\s*S\s*U\s*E\s*L\s*V\s*E\b[\s:]*|D\s*I\s*S\s*P\s*O\s*N\s*E\b[\s:]*|D\s*E\s*C\s*R\s*E\s*T\s*A\b[\s:]*|RESUELVE\b[\s:]*|DISPONE\b[\s:]*|DECRETA\b[\s:]*|Resuelve\b\s*:[\s]*|Dispone\b\s*:[\s]*|Decreta\b\s*:[\s]*)')
+    
+    patron_articulo = re.compile(r'(?:^|\n)\s*(ART[IÍ]CULO|Art[ií]culo)\s*(\d+)([:\.\-]*\s*)')
+    
     patron_folio = re.compile(r'^\s*-\s*\d+\s*-\s*$')
-    # NUEVO PATRÓN: Para ignorar numeración "1 / 2", "2/2", etc.
     patron_paginacion = re.compile(r'^\s*\d+\s*/\s*\d+\s*$')
     patron_anexo_inicio = re.compile(r'^\s*(ANEXO|Anexo)\b', re.IGNORECASE)
     patron_titulo_norma = re.compile(r'(DISPOSICIÓN|RESOLUCIÓN)\s+([A-Z\-]+):\s*(\d+)-(\d+)', re.IGNORECASE)
     
     titulo_encontrado = None
+
+    # --- NUEVO: Inicialización del diccionario JSON de metadata ---
+    metadata_json = {
+        "source_pdf": nombre_original,
+        "document_id_hint": os.path.splitext(nombre_original)[0].lower(),
+        "source_system_hint": "unknown",
+        "pages": [],
+        "global_hints": {
+            "has_signature_page": False,
+            "has_annexes": False,
+            "has_auxiliary_codes": False
+        },
+        "detected_entities": {
+            "document_code_candidates": [],
+            "date_candidates": [],
+            "city_candidates": [],
+            "issuing_body_candidates": []
+        },
+        "warnings": []
+    }
+    # --------------------------------------------------------------
     
     for i, pagina in enumerate(doc):
         cp = pagina.cropbox
@@ -84,6 +108,18 @@ def extraer_a_markdown_directo(buffer_pdf, nombre_original):
         indices_saltados = set()
         primer_bloque_pagina = True
 
+        # --- NUEVO: Estructuras para recolectar información de la página actual ---
+        info_pagina = {
+            "page_number": i + 1,
+            "text": "",
+            "markers": set(),
+            "has_signature_block": False,
+            "has_annex_start": False,
+            "has_web_disclaimer": False
+        }
+        textos_bloques_pagina = []
+        # -------------------------------------------------------------------------
+
         for idx, b in enumerate(bloques):
             if b["type"] != 0 or idx in indices_saltados: continue
             
@@ -93,7 +129,6 @@ def extraer_a_markdown_directo(buffer_pdf, nombre_original):
             lineas_temp = []
             for linea in b["lines"]:
                 txt_temp = " ".join([s["text"].strip() for s in linea["spans"] if s["text"].strip()])
-                # AÑADIDO: Exclusión de patron_paginacion
                 if txt_temp and "///" not in txt_temp and not patron_folio.match(txt_temp) and not patron_paginacion.match(txt_temp):
                     lineas_temp.append(txt_temp)
             texto_temp = " ".join(lineas_temp).strip()
@@ -133,7 +168,6 @@ def extraer_a_markdown_directo(buffer_pdf, nombre_original):
                 for linea in b["lines"]:
                     for span in linea["spans"]:
                         txt_limpio = span["text"].strip()
-                        # AÑADIDO: Exclusión de patron_paginacion
                         if txt_limpio and "///" not in txt_limpio and not patron_folio.match(txt_limpio) and not patron_paginacion.match(txt_limpio):
                             primer_span = span
                             break
@@ -146,17 +180,19 @@ def extraer_a_markdown_directo(buffer_pdf, nombre_original):
                         leyendo_subtitulo = True
 
                 for linea in b["lines"]:
+                    sub_linea_actual = []
+                    cuerpo_linea_actual = []
+
                     for span in linea["spans"]:
                         txt_raw = span["text"]
                         txt_strip = txt_raw.strip()
                         
-                        # AÑADIDO: Exclusión de patron_paginacion
                         if "///" in txt_strip or patron_folio.match(txt_strip) or patron_paginacion.match(txt_strip):
                             continue
                             
                         if not txt_strip:
-                            if leyendo_subtitulo: textos_subtitulo.append(txt_raw)
-                            else: textos_cuerpo.append(txt_raw)
+                            if leyendo_subtitulo: sub_linea_actual.append(txt_raw)
+                            else: cuerpo_linea_actual.append(txt_raw)
                             continue
                         
                         flags = span.get("flags", 0)
@@ -165,12 +201,17 @@ def extraer_a_markdown_directo(buffer_pdf, nombre_original):
                         
                         if leyendo_subtitulo:
                             if es_bold:
-                                textos_subtitulo.append(txt_raw)
+                                sub_linea_actual.append(txt_raw)
                             else:
                                 leyendo_subtitulo = False
-                                textos_cuerpo.append(txt_raw)
+                                cuerpo_linea_actual.append(txt_raw)
                         else:
-                            textos_cuerpo.append(txt_raw)
+                            cuerpo_linea_actual.append(txt_raw)
+                    
+                    if sub_linea_actual:
+                        textos_subtitulo.append("".join(sub_linea_actual).strip())
+                    if cuerpo_linea_actual:
+                        textos_cuerpo.append("".join(cuerpo_linea_actual).strip())
 
                 texto_sub = " ".join(textos_subtitulo).strip()
                 texto_cuerpo = " ".join(textos_cuerpo).strip()
@@ -179,6 +220,33 @@ def extraer_a_markdown_directo(buffer_pdf, nombre_original):
                 
                 texto_unido_plano = " ".join([texto_sub, texto_cuerpo]).strip()
                 texto_unido_plano = re.sub(r'\s{2,}', ' ', texto_unido_plano).strip()
+
+                # --- NUEVO: Recolección de metadatos del bloque actual ---
+                if texto_unido_plano:
+                    textos_bloques_pagina.append(texto_unido_plano)
+                    
+                    match_norma = patron_titulo_norma.search(texto_unido_plano)
+                    if match_norma:
+                        candidato_codigo = f"{match_norma.group(1)} {match_norma.group(2)}: {match_norma.group(3)}/{match_norma.group(4)}"
+                        if candidato_codigo not in metadata_json["detected_entities"]["document_code_candidates"]:
+                            metadata_json["detected_entities"]["document_code_candidates"].append(candidato_codigo)
+                    
+                    if patron_visto.search(texto_unido_plano):
+                        info_pagina["markers"].add("VISTO")
+                    if patron_considerando.search(texto_unido_plano):
+                        info_pagina["markers"].add("CONSIDERANDO")
+                    if patron_resuelve.search(texto_unido_plano):
+                        info_pagina["markers"].add("RESUELVE")
+                    if patron_articulo.search(texto_unido_plano):
+                        info_pagina["markers"].add("ARTÍCULO")
+                        
+                    if es_anexo:
+                        info_pagina["has_annex_start"] = True
+                        metadata_json["global_hints"]["has_annexes"] = True
+                        
+                    if "validez para presentación ante terceros" in texto_unido_plano.lower():
+                        info_pagina["has_web_disclaimer"] = True
+                # --------------------------------------------------------
 
                 if not titulo_encontrado:
                     match = patron_titulo_norma.search(texto_unido_plano)
@@ -205,7 +273,6 @@ def extraer_a_markdown_directo(buffer_pdf, nombre_original):
                         texto_sig = " ".join([" ".join([s["text"].strip() for s in l["spans"] if s["text"].strip()]) for l in b_sig["lines"]]).strip()
                         texto_sig = re.sub(r'\s{2,}', ' ', texto_sig).strip()
 
-                        # AÑADIDO: Exclusión de patron_paginacion
                         if "///" in texto_sig or patron_folio.match(texto_sig) or patron_paginacion.match(texto_sig) or not texto_sig:
                             indices_saltados.add(cursor_idx)
                             cursor_idx += 1
@@ -249,38 +316,55 @@ def extraer_a_markdown_directo(buffer_pdf, nombre_original):
                 # ----------------------------------------
                 
                 if not es_anexo:
-                    if patron_visto.match(texto_unido_plano):
-                        texto_unido = "## Visto\n" + patron_visto.sub("", texto_unido_plano).strip()
-                    elif patron_considerando.match(texto_unido_plano):
-                        texto_unido = "## Considerando\n" + patron_considerando.sub("", texto_unido_plano).strip()
-                    elif m_res := patron_resuelve.match(texto_unido_plano):
-                        encabezado = "## Parte dispositiva" if "DISPONE" in m_res.group(1).upper() else "## Parte resolutiva"
-                        texto_unido = f"{encabezado}\n" + patron_resuelve.sub("", texto_unido_plano).strip()
-                    elif m := patron_articulo.match(texto_unido_plano):
-                        texto_unido = f"### Artículo {m.group(2)}\n" + patron_articulo.sub("", texto_unido_plano).strip()
-                    else:
-                        def procesar_vinetas_inline(texto):
-                            if any(c in texto for c in ['·', '●', '•']):
-                                fragmentos = re.split(r'[·●•]', texto)
-                                lineas_procesadas = []
-                                
-                                frag_inicial = fragmentos[0].strip()
-                                if frag_inicial:
-                                    if patron_alfabetico.match(frag_inicial):
-                                        lineas_procesadas.append("- " + frag_inicial)
-                                    else:
-                                        lineas_procesadas.append(frag_inicial)
-                                
-                                for frag in fragmentos[1:]:
-                                    frag_limpio = frag.strip()
-                                    if frag_limpio:
-                                        lineas_procesadas.append("- " + frag_limpio)
-                                
-                                return "\n".join(lineas_procesadas)
-                            elif patron_alfabetico.match(texto):
-                                return "- " + texto
-                            return texto
+                    tiene_encabezado_conocido = bool(
+                        patron_visto.search(texto_unido_plano) or 
+                        patron_considerando.search(texto_unido_plano) or 
+                        patron_resuelve.search(texto_unido_plano) or 
+                        patron_articulo.search(texto_unido_plano)
+                    )
 
+                    def procesar_vinetas_inline(texto):
+                        if any(c in texto for c in ['·', '●', '•']):
+                            fragmentos = re.split(r'[·●•]', texto)
+                            lineas_procesadas = []
+                            
+                            frag_inicial = fragmentos[0].strip()
+                            if frag_inicial:
+                                if patron_alfabetico.match(frag_inicial):
+                                    lineas_procesadas.append("- " + frag_inicial)
+                                else:
+                                    lineas_procesadas.append(frag_inicial)
+                            
+                            for frag in fragmentos[1:]:
+                                frag_limpio = frag.strip()
+                                if frag_limpio:
+                                    lineas_procesadas.append("- " + frag_limpio)
+                            
+                            return "\n".join(lineas_procesadas)
+                        elif patron_alfabetico.match(texto):
+                            return "- " + texto
+                        return texto
+
+                    if tiene_encabezado_conocido:
+                        def procesar_encabezados(texto):
+                            t = patron_visto.sub(r'\n\n## Visto\n', texto)
+                            t = patron_considerando.sub(r'\n\n## Considerando\n', t)
+                            
+                            def reemplazo_resuelve(m):
+                                palabra = m.group(1).upper().replace(" ", "")
+                                encabezado = "dispositiva" if "DISPONE" in palabra else "resolutiva"
+                                return f"\n\n## Parte {encabezado}\n"
+                                
+                            t = patron_resuelve.sub(reemplazo_resuelve, t)
+                            t = patron_articulo.sub(r'\n\n### Artículo \2\n', t)
+                            
+                            t = re.sub(r'\n{3,}', '\n\n', t)
+                            return t.strip()
+                            
+                        texto_unido = procesar_encabezados(texto_unido_plano)
+                        texto_unido = procesar_vinetas_inline(texto_unido)
+                    
+                    else:
                         if texto_sub and len(texto_sub) > 2:
                             if texto_cuerpo:
                                 cuerpo_procesado = procesar_vinetas_inline(texto_cuerpo)
@@ -305,13 +389,21 @@ def extraer_a_markdown_directo(buffer_pdf, nombre_original):
                             not ultima_linea.startswith('|') and 
                             not texto_unido.startswith('#') and 
                             not texto_unido.startswith('|') and 
-                            not texto_unido.startswith('- ')):
+                            not texto_unido.startswith('- ') and 
+                            '\n## ' not in texto_unido):
                             
                             contenido_final[-1] = ultimo_bloque + " " + texto_unido
                             primer_bloque_pagina = False
                             continue
+                
                 contenido_final.append(texto_unido)
                 primer_bloque_pagina = False
+
+        # --- NUEVO: Al finalizar de iterar la página, consolidamos su información para el JSON ---
+        info_pagina["text"] = "\n".join(textos_bloques_pagina)
+        info_pagina["markers"] = list(info_pagina["markers"])  # Convertimos a lista para que sea serializable
+        metadata_json["pages"].append(info_pagina)
+        # ------------------------------------------------------------------------------------------
 
     doc.close()
     if titulo_encontrado: contenido_final.insert(0, titulo_encontrado)
@@ -319,6 +411,13 @@ def extraer_a_markdown_directo(buffer_pdf, nombre_original):
     nombre_salida = f"{os.path.splitext(nombre_original)[0]}_jerarquizado.md"
     with open(nombre_salida, "w", encoding="utf-8") as f:
         f.write("\n\n".join(contenido_final))
+
+    # --- NUEVO: Exportación del metadata JSON ---
+    nombre_salida_json = f"{os.path.splitext(nombre_original)[0]}_auxiliar.json"
+    with open(nombre_salida_json, "w", encoding="utf-8") as f_json:
+        json.dump(metadata_json, f_json, ensure_ascii=False, indent=4)
+    # --------------------------------------------
+
     return nombre_salida
 
 if __name__ == "__main__":
