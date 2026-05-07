@@ -75,7 +75,7 @@ def extraer_a_markdown_directo(buffer_pdf, nombre_original):
     metadata_json = {
         "source_pdf": nombre_original,
         "document_id_hint": "unknown", # CAMBIO: Inicializa en unknown
-        "source_system_hint": "unknown",
+        "source_system_hint": "legacy",
         "pages": [],
         "global_hints": {
             "has_signature_page": False,
@@ -94,6 +94,11 @@ def extraer_a_markdown_directo(buffer_pdf, nombre_original):
     for i, pagina in enumerate(doc):
         cp = pagina.cropbox
         alto = cp.height
+
+        # detecta firma digital, para archivos "electronic"
+        for widget in pagina.widgets(): 
+            if widget.field_type == fitz.PDF_WIDGET_TYPE_SIGNATURE:
+                metadata_json["source_system_hint"] = "electronic"
         
         margen_superior = cp.y0 + (alto * 0.20)
         margen_inferior = cp.y0 + (alto * 0.96)
