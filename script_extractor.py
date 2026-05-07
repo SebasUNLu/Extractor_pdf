@@ -5,7 +5,7 @@ import os
 import time
 import re
 import io
-import json  # NUEVO: Importamos json para la creación del metadata
+import json
 
 def aplanar_y_limpiar_avanzado(ruta_entrada):
     """
@@ -27,13 +27,15 @@ def aplanar_y_limpiar_avanzado(ruta_entrada):
             if bloque["type"] == 0:
                 for linea in bloque["lines"]:
                     for span in linea["spans"]:
-                        nueva_pag.insert_text(
-                            span["origin"], 
-                            span["text"], 
-                            fontsize=span["size"],
-                            fontname="helv",
-                            color=(0,0,0)
-                        )
+                        # NUEVO: Solo insertamos si el texto no está vacío
+                        if span["text"].strip():
+                            nueva_pag.insert_text(
+                                span["origin"], 
+                                span["text"], 
+                                fontsize=span["size"],
+                                fontname="helv",
+                                color=(0,0,0)
+                            )
         
         tabs = pagina.find_tables()
         for t in tabs.tables:
@@ -70,10 +72,9 @@ def extraer_a_markdown_directo(buffer_pdf, nombre_original):
     
     titulo_encontrado = None
 
-    # --- NUEVO: Inicialización del diccionario JSON de metadata ---
     metadata_json = {
         "source_pdf": nombre_original,
-        "document_id_hint": os.path.splitext(nombre_original)[0].lower(),
+        "document_id_hint": "unknown", # CAMBIO: Inicializa en unknown
         "source_system_hint": "unknown",
         "pages": [],
         "global_hints": {
@@ -89,7 +90,6 @@ def extraer_a_markdown_directo(buffer_pdf, nombre_original):
         },
         "warnings": []
     }
-    # --------------------------------------------------------------
     
     for i, pagina in enumerate(doc):
         cp = pagina.cropbox
@@ -108,7 +108,6 @@ def extraer_a_markdown_directo(buffer_pdf, nombre_original):
         indices_saltados = set()
         primer_bloque_pagina = True
 
-        # --- NUEVO: Estructuras para recolectar información de la página actual ---
         info_pagina = {
             "page_number": i + 1,
             "text": "",
@@ -118,7 +117,6 @@ def extraer_a_markdown_directo(buffer_pdf, nombre_original):
             "has_web_disclaimer": False
         }
         textos_bloques_pagina = []
-        # -------------------------------------------------------------------------
 
         for idx, b in enumerate(bloques):
             if b["type"] != 0 or idx in indices_saltados: continue
@@ -221,7 +219,6 @@ def extraer_a_markdown_directo(buffer_pdf, nombre_original):
                 texto_unido_plano = " ".join([texto_sub, texto_cuerpo]).strip()
                 texto_unido_plano = re.sub(r'\s{2,}', ' ', texto_unido_plano).strip()
 
-                # --- NUEVO: Recolección de metadatos del bloque actual ---
                 if texto_unido_plano:
                     textos_bloques_pagina.append(texto_unido_plano)
                     
@@ -246,7 +243,6 @@ def extraer_a_markdown_directo(buffer_pdf, nombre_original):
                         
                     if "validez para presentación ante terceros" in texto_unido_plano.lower():
                         info_pagina["has_web_disclaimer"] = True
-                # --------------------------------------------------------
 
                 if not titulo_encontrado:
                     match = patron_titulo_norma.search(texto_unido_plano)
@@ -399,24 +395,34 @@ def extraer_a_markdown_directo(buffer_pdf, nombre_original):
                 contenido_final.append(texto_unido)
                 primer_bloque_pagina = False
 
-        # --- NUEVO: Al finalizar de iterar la página, consolidamos su información para el JSON ---
         info_pagina["text"] = "\n".join(textos_bloques_pagina)
-        info_pagina["markers"] = list(info_pagina["markers"])  # Convertimos a lista para que sea serializable
+        info_pagina["markers"] = list(info_pagina["markers"])
         metadata_json["pages"].append(info_pagina)
-        # ------------------------------------------------------------------------------------------
 
     doc.close()
-    if titulo_encontrado: contenido_final.insert(0, titulo_encontrado)
+    
+    # --- NUEVO: Lógica final para armar document_id_hint desde el título encontrado ---
+    if titulo_encontrado: 
+        contenido_final.insert(0, titulo_encontrado)
+        
+        m_hint = re.search(r'#\s*(Resolución|Disposición|Resolucion|Disposicion)\s+(.*)', titulo_encontrado, re.IGNORECASE)
+        if m_hint:
+            palabra_clave = m_hint.group(1).lower()
+            tipo_doc = "res" if "res" in palabra_clave else "disp"
+            resto_doc = m_hint.group(2).lower()
+            # Se cambian espacios, barras, guiones medios y dos puntos por un guion bajo '_'
+            resto_doc = re.sub(r'[\s\/\-\:]+', '_', resto_doc).strip('_')
+            
+            metadata_json["document_id_hint"] = f"{tipo_doc}_{resto_doc}"
+    # ----------------------------------------------------------------------------------
 
     nombre_salida = f"{os.path.splitext(nombre_original)[0]}_jerarquizado.md"
     with open(nombre_salida, "w", encoding="utf-8") as f:
         f.write("\n\n".join(contenido_final))
 
-    # --- NUEVO: Exportación del metadata JSON ---
     nombre_salida_json = f"{os.path.splitext(nombre_original)[0]}_auxiliar.json"
     with open(nombre_salida_json, "w", encoding="utf-8") as f_json:
         json.dump(metadata_json, f_json, ensure_ascii=False, indent=4)
-    # --------------------------------------------
 
     return nombre_salida
 
