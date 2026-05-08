@@ -12,7 +12,7 @@ def normalizar_fecha(dia, mes_str, anio):
     Normaliza fechas al formato ISO (YYYY-MM-DD) requerido por el YAML.
     """
     if len(anio) == 2:
-        anio = "20" + anio # Asume años 2000+
+        anio = "20" + anio 
     elif len(anio) != 4:
         return None
         
@@ -34,7 +34,6 @@ def normalizar_fecha(dia, mes_str, anio):
     dia = dia.zfill(2)
     
     try:
-        # Validación básica de coherencia
         if int(dia) > 31 or int(mes) > 12 or int(dia) == 0 or int(mes) == 0:
             return None
     except ValueError:
@@ -104,10 +103,13 @@ def extraer_a_markdown_directo(buffer_pdf, nombre_original):
     patron_anexo_inicio = re.compile(r'^\s*(ANEXO|Anexo)\b', re.IGNORECASE)
     patron_titulo_norma = re.compile(r'(DISPOSICIÓN|RESOLUCIÓN)\s+([A-Z\-]+):\s*(\d+)-(\d+)', re.IGNORECASE)
     
-    # --- NUEVOS PATRONES DE FECHAS ---
     patron_fecha_num = re.compile(r'\b(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{2,4})\b')
     patron_fecha_texto = re.compile(r'\b(\d{1,2})\s*(?:de\s*)?([a-zA-Z]{3,10})\s*(?:de\s*)?(\d{2,4})\b', re.IGNORECASE)
-    # ---------------------------------
+    
+    # --- NUEVO PATRÓN DE CIUDAD ---
+    # Busca las sedes de la UNLu justo antes de una fecha
+    patron_ciudad_emision = re.compile(r'\b(Luj[aá]n|Campana|Chivilcoy|San\s+Miguel|CABA|Buenos\s+Aires|Capital\s+Federal)\b\s*,?\s*(?:\d{1,2}\s*(?:de\s*)?(?:[a-zA-Z]{3,10})\s*(?:de\s*)?\d{2,4}|\d{1,2}[\/\-]\d{1,2}[\/\-]\d{2,4})', re.IGNORECASE)
+    # ------------------------------
 
     titulo_encontrado = None
 
@@ -271,7 +273,6 @@ def extraer_a_markdown_directo(buffer_pdf, nombre_original):
                         if candidato_codigo not in metadata_json["detected_entities"]["document_code_candidates"]:
                             metadata_json["detected_entities"]["document_code_candidates"].append(candidato_codigo)
                     
-                    # --- NUEVA LÓGICA DE EXTRACCIÓN DE FECHAS ---
                     for match in patron_fecha_num.finditer(texto_unido_plano):
                         d, m, a = match.groups()
                         fecha_norm = normalizar_fecha(d, m, a)
@@ -283,6 +284,16 @@ def extraer_a_markdown_directo(buffer_pdf, nombre_original):
                         fecha_norm = normalizar_fecha(d, m, a)
                         if fecha_norm and fecha_norm not in metadata_json["detected_entities"]["date_candidates"]:
                             metadata_json["detected_entities"]["date_candidates"].append(fecha_norm)
+                    
+                    # --- NUEVA LÓGICA DE EXTRACCIÓN DE CIUDAD ---
+                    for match in patron_ciudad_emision.finditer(texto_unido_plano):
+                        ciudad_detectada = match.group(1).upper()
+                        # Normalizamos Luján para evitar variaciones con o sin tilde
+                        if ciudad_detectada in ["LUJAN", "LUJÁN"]:
+                            ciudad_detectada = "LUJÁN"
+                            
+                        if ciudad_detectada not in metadata_json["detected_entities"]["city_candidates"]:
+                            metadata_json["detected_entities"]["city_candidates"].append(ciudad_detectada)
                     # --------------------------------------------
 
                     if patron_visto.search(texto_unido_plano):
