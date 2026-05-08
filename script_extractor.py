@@ -7,6 +7,41 @@ import re
 import io
 import json
 
+def normalizar_fecha(dia, mes_str, anio):
+    """
+    Normaliza fechas al formato ISO (YYYY-MM-DD) requerido por el YAML.
+    """
+    if len(anio) == 2:
+        anio = "20" + anio # Asume años 2000+
+    elif len(anio) != 4:
+        return None
+        
+    meses = {
+        'ene': '01', 'feb': '02', 'mar': '03', 'abr': '04',
+        'may': '05', 'jun': '06', 'jul': '07', 'ago': '08',
+        'sep': '09', 'set': '09', 'oct': '10', 'nov': '11', 'dic': '12'
+    }
+    
+    if mes_str.isdigit():
+        mes = mes_str.zfill(2)
+    else:
+        mes_clean = mes_str.lower()[:3]
+        mes = meses.get(mes_clean, None)
+        
+    if mes is None:
+        return None
+        
+    dia = dia.zfill(2)
+    
+    try:
+        # Validación básica de coherencia
+        if int(dia) > 31 or int(mes) > 12 or int(dia) == 0 or int(mes) == 0:
+            return None
+    except ValueError:
+        return None
+        
+    return f"{anio}-{mes}-{dia}"
+
 def aplanar_y_limpiar_avanzado(ruta_entrada):
     """
     Limpia el PDF de estructuras fantasmas y normaliza el texto.
@@ -27,7 +62,6 @@ def aplanar_y_limpiar_avanzado(ruta_entrada):
             if bloque["type"] == 0:
                 for linea in bloque["lines"]:
                     for span in linea["spans"]:
-                        # NUEVO: Solo insertamos si el texto no está vacío
                         if span["text"].strip():
                             nueva_pag.insert_text(
                                 span["origin"], 
@@ -70,11 +104,16 @@ def extraer_a_markdown_directo(buffer_pdf, nombre_original):
     patron_anexo_inicio = re.compile(r'^\s*(ANEXO|Anexo)\b', re.IGNORECASE)
     patron_titulo_norma = re.compile(r'(DISPOSICIÓN|RESOLUCIÓN)\s+([A-Z\-]+):\s*(\d+)-(\d+)', re.IGNORECASE)
     
+    # --- NUEVOS PATRONES DE FECHAS ---
+    patron_fecha_num = re.compile(r'\b(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{2,4})\b')
+    patron_fecha_texto = re.compile(r'\b(\d{1,2})\s*(?:de\s*)?([a-zA-Z]{3,10})\s*(?:de\s*)?(\d{2,4})\b', re.IGNORECASE)
+    # ---------------------------------
+
     titulo_encontrado = None
 
     metadata_json = {
         "source_pdf": nombre_original,
-        "document_id_hint": "unknown", # CAMBIO: Inicializa en unknown
+        "document_id_hint": "unknown",
         "source_system_hint": "legacy",
         "pages": [],
         "global_hints": {
@@ -95,7 +134,6 @@ def extraer_a_markdown_directo(buffer_pdf, nombre_original):
         cp = pagina.cropbox
         alto = cp.height
 
-        # detecta firma digital, para archivos "electronic"
         for widget in pagina.widgets(): 
             if widget.field_type == fitz.PDF_WIDGET_TYPE_SIGNATURE:
                 metadata_json["source_system_hint"] = "electronic"
@@ -233,6 +271,20 @@ def extraer_a_markdown_directo(buffer_pdf, nombre_original):
                         if candidato_codigo not in metadata_json["detected_entities"]["document_code_candidates"]:
                             metadata_json["detected_entities"]["document_code_candidates"].append(candidato_codigo)
                     
+                    # --- NUEVA LÓGICA DE EXTRACCIÓN DE FECHAS ---
+                    for match in patron_fecha_num.finditer(texto_unido_plano):
+                        d, m, a = match.groups()
+                        fecha_norm = normalizar_fecha(d, m, a)
+                        if fecha_norm and fecha_norm not in metadata_json["detected_entities"]["date_candidates"]:
+                            metadata_json["detected_entities"]["date_candidates"].append(fecha_norm)
+
+                    for match in patron_fecha_texto.finditer(texto_unido_plano):
+                        d, m, a = match.groups()
+                        fecha_norm = normalizar_fecha(d, m, a)
+                        if fecha_norm and fecha_norm not in metadata_json["detected_entities"]["date_candidates"]:
+                            metadata_json["detected_entities"]["date_candidates"].append(fecha_norm)
+                    # --------------------------------------------
+
                     if patron_visto.search(texto_unido_plano):
                         info_pagina["markers"].add("VISTO")
                     if patron_considerando.search(texto_unido_plano):
@@ -406,7 +458,6 @@ def extraer_a_markdown_directo(buffer_pdf, nombre_original):
 
     doc.close()
     
-    # --- NUEVO: Lógica final para armar document_id_hint desde el título encontrado ---
     if titulo_encontrado: 
         contenido_final.insert(0, titulo_encontrado)
         
@@ -415,11 +466,9 @@ def extraer_a_markdown_directo(buffer_pdf, nombre_original):
             palabra_clave = m_hint.group(1).lower()
             tipo_doc = "res" if "res" in palabra_clave else "disp"
             resto_doc = m_hint.group(2).lower()
-            # Se cambian espacios, barras, guiones medios y dos puntos por un guion bajo '_'
             resto_doc = re.sub(r'[\s\/\-\:]+', '_', resto_doc).strip('_')
             
             metadata_json["document_id_hint"] = f"{tipo_doc}_{resto_doc}"
-    # ----------------------------------------------------------------------------------
 
     nombre_salida = f"{os.path.splitext(nombre_original)[0]}_jerarquizado.md"
     with open(nombre_salida, "w", encoding="utf-8") as f:
