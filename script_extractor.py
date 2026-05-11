@@ -309,7 +309,7 @@ def extraer_a_markdown_directo(buffer_pdf, nombre_original):
                         info_pagina["has_annex_start"] = True
                         metadata_json["global_hints"]["has_annexes"] = True
                         
-                    if "validez para presentación ante terceros" in texto_unido_plano.lower():
+                    if "validez para su presentación en terceras" in texto_unido_plano.lower():
                         info_pagina["has_web_disclaimer"] = True
 
                 if not titulo_encontrado:
@@ -481,11 +481,11 @@ def extraer_a_markdown_directo(buffer_pdf, nombre_original):
             
             metadata_json["document_id_hint"] = f"{tipo_doc}_{resto_doc}"
 
-    nombre_salida = f"{os.path.splitext(nombre_original)[0]}_jerarquizado.md"
+    nombre_salida = f"{os.path.splitext(nombre_original)[0]}.md"
     with open(nombre_salida, "w", encoding="utf-8") as f:
         f.write("\n\n".join(contenido_final))
 
-    nombre_salida_json = f"{os.path.splitext(nombre_original)[0]}_auxiliar.json"
+    nombre_salida_json = f"{os.path.splitext(nombre_original)[0]}.json"
     with open(nombre_salida_json, "w", encoding="utf-8") as f_json:
         json.dump(metadata_json, f_json, ensure_ascii=False, indent=4)
 

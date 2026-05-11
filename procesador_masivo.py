@@ -50,14 +50,14 @@ def procesar_carpeta(ruta_destino):
             subprocess.run(["python", script_extractor, ruta_completa_pdf], check=True, capture_output=True)
             
             # Identificar el nombre del archivo Markdown generado
-            nombre_md = f"{os.path.splitext(archivo)[0]}_jerarquizado.md"
+            nombre_md = f"{os.path.splitext(archivo)[0]}.md"
             
             # Si el archivo se generó, lo movemos a la carpeta de resultados
             if os.path.exists(nombre_md):
                 shutil.move(nombre_md, os.path.join(carpeta_resultados, nombre_md))
             
             # Identificar el nombre del archivo JSON generado
-            nombre_json = f"{os.path.splitext(archivo)[0]}_auxiliar.json"
+            nombre_json = f"{os.path.splitext(archivo)[0]}.json"
             
             # Si el archivo JSON se generó, lo movemos a la misma carpeta de resultados
             if os.path.exists(nombre_json):
