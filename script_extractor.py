@@ -105,6 +105,8 @@ def extraer_a_markdown_directo(buffer_pdf, nombre_original):
     
     patron_fecha_num = re.compile(r'\b(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{2,4})\b')
     patron_fecha_texto = re.compile(r'\b(\d{1,2})\s*(?:de\s*)?([a-zA-Z]{3,10})\s*(?:de\s*)?(\d{2,4})\b', re.IGNORECASE)
+
+    patron_codigo_auxiliar = re.compile(r'\b(EXP-LUJ|ACTDB-LUJ)\s*[:\-]?\s*\d+[\/\-]\d{2,4}\b', re.IGNORECASE)
     
     # --- NUEVO PATRÓN DE CIUDAD ---
     # Busca las sedes de la UNLu justo antes de una fecha
@@ -141,7 +143,7 @@ def extraer_a_markdown_directo(buffer_pdf, nombre_original):
                 metadata_json["source_system_hint"] = "electronic"
         
         margen_superior = cp.y0 + (alto * 0.20)
-        margen_inferior = cp.y0 + (alto * 0.96)
+        margen_inferior = alto
 
         tabs = pagina.find_tables(strategy="lines", snap_tolerance=4)
         areas_tablas = [t.bbox for t in tabs.tables]
@@ -311,6 +313,9 @@ def extraer_a_markdown_directo(buffer_pdf, nombre_original):
                         
                     if "validez para su presentación en terceras" in texto_unido_plano.lower():
                         info_pagina["has_web_disclaimer"] = True
+
+                    if patron_codigo_auxiliar.search(texto_unido_plano):
+                        metadata_json["global_hints"]["has_auxiliary_codes"] = True
 
                 if not titulo_encontrado:
                     match = patron_titulo_norma.search(texto_unido_plano)
