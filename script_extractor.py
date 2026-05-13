@@ -106,13 +106,11 @@ def extraer_a_markdown_directo(buffer_pdf, nombre_original):
     patron_fecha_num = re.compile(r'\b(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{2,4})\b')
     patron_fecha_texto = re.compile(r'\b(\d{1,2})\s*(?:de\s*)?([a-zA-Z]{3,10})\s*(?:de\s*)?(\d{2,4})\b', re.IGNORECASE)
 
-    patron_codigo_auxiliar = re.compile(r'\b(EXP-LUJ|ACTDB-LUJ)\s*[:\-]?\s*\d+[\/\-]\d{2,4}\b', re.IGNORECASE)
+    patron_codigo_auxiliar = re.compile(r'\b(EXP-LUJ|ACTDB-LUJ|EXPP)\s*[:\-]?\s*\d+[\/\-]\d{2,4}\b', re.IGNORECASE)
     
     patron_ciudad_emision = re.compile(r'\b(Luj[aá]n|Campana|Chivilcoy|San\s+Miguel|CABA|Buenos\s+Aires|Capital\s+Federal)\b\s*,?\s*(?:\d{1,2}\s*(?:de\s*)?(?:[a-zA-Z]{3,10})\s*(?:de\s*)?\d{2,4}|\d{1,2}[\/\-]\d{1,2}[\/\-]\d{2,4})', re.IGNORECASE)
     
-    # --- NUEVO PATRÓN: Detecta el disclaimer web ---
     patron_disclaimer_web = re.compile(r'(texto de los documentos publicados|validez para su presentación en terceras|de gestión de doc\. y actos adm)', re.IGNORECASE)
-    # -----------------------------------------------
 
     titulo_encontrado = None
 
@@ -124,7 +122,8 @@ def extraer_a_markdown_directo(buffer_pdf, nombre_original):
         "global_hints": {
             "has_signature_page": False,
             "has_annexes": False,
-            "has_auxiliary_codes": False
+            "has_auxiliary_codes": False,
+            "auxiliary_codes": [] # NUEVO CAMPO: Array inicializado vacío
         },
         "detected_entities": {
             "document_code_candidates": [],
@@ -269,12 +268,10 @@ def extraer_a_markdown_directo(buffer_pdf, nombre_original):
 
                 if texto_unido_plano:
                     
-                    # --- NUEVA INTERCEPCIÓN QUIRÚRGICA ---
                     if patron_disclaimer_web.search(texto_unido_plano):
                         info_pagina["has_web_disclaimer"] = True
                         primer_bloque_pagina = False
                         continue
-                    # -------------------------------------
 
                     textos_bloques_pagina.append(texto_unido_plano)
                     
@@ -317,8 +314,14 @@ def extraer_a_markdown_directo(buffer_pdf, nombre_original):
                         info_pagina["has_annex_start"] = True
                         metadata_json["global_hints"]["has_annexes"] = True
                         
-                    if patron_codigo_auxiliar.search(texto_unido_plano):
-                        metadata_json["global_hints"]["has_auxiliary_codes"] = True
+                    # --- NUEVA LÓGICA DE COLECCIÓN DE CÓDIGOS AUXILIARES ---
+                    matches_aux = patron_codigo_auxiliar.finditer(texto_unido_plano)
+                    for m in matches_aux:
+                        cod = m.group(0).strip()
+                        if cod not in metadata_json["global_hints"]["auxiliary_codes"]:
+                            metadata_json["global_hints"]["auxiliary_codes"].append(cod)
+                            metadata_json["global_hints"]["has_auxiliary_codes"] = True
+                    # ------------------------------------------------------
 
                 if not titulo_encontrado:
                     match = patron_titulo_norma.search(texto_unido_plano)

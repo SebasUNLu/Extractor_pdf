@@ -23,6 +23,7 @@ def procesar_metadatos(json_data, contenido_md):
     document_code = "unknown"
     document_number = "unknown"
     if candidates:
+        # Ejemplo esperado: "RESOLUCIÓN RESHCS-LUJ: 0000206-24"
         partes = candidates[0].split(":")
         if len(partes) >= 2:
             document_code = partes[0].split(" ")[-1].strip()
@@ -42,14 +43,14 @@ def procesar_metadatos(json_data, contenido_md):
 
     # 5. Resolver Anexos (Cruzando JSON con el Markdown)
     has_annexes = json_data.get("global_hints", {}).get("has_annexes", False)
+    # Contamos exactamente cuántas veces aparece un título de anexo en el MD
     annex_count = len(re.findall(r'^#\s*(ANEXO|Anexo)', contenido_md, re.MULTILINE))
     if has_annexes and annex_count == 0:
         annex_count = 1
 
     # 6. Códigos Auxiliares
-    patron_aux = re.compile(r'\b(?:EXP-LUJ|ACTDB-LUJ)\s*[:\-]?\s*\d+[\/\-]\d{2,4}\b', re.IGNORECASE)
-    aux_matches = patron_aux.findall(contenido_md)
-    auxiliary_codes = list(set([m.replace('\n', '').strip() for m in aux_matches]))
+    # CAMBIO: Ahora los tomamos directamente del array 'auxiliary_codes' que generó el extractor
+    auxiliary_codes = json_data.get("global_hints", {}).get("auxiliary_codes", [])
 
     # 7. Notas de publicación (Disclaimer web)
     publication_notes = []
@@ -70,7 +71,7 @@ def procesar_metadatos(json_data, contenido_md):
     else:
         signature_mode = "embedded"
 
-    # CONSTRUCCIÓN DEL DICCIONARIO CANÓNICO (Siguiendo sección 13 del tutorial)
+    # CONSTRUCCIÓN DEL DICCIONARIO CANÓNICO
     yaml_dict = {
         "document_id": doc_id_hint,
         "source_pdf": json_data.get("source_pdf", "unknown"),
@@ -97,8 +98,7 @@ def procesar_metadatos(json_data, contenido_md):
         "normative_references": [],
         "auxiliary_codes": auxiliary_codes,
         "publication_notes": publication_notes,
-        "extraction_version": "v1.1",
-        # NUEVA PROPIEDAD: El cuerpo del Markdown jerarquizado como string
+        "extraction_version": "v1.2", # Versión actualizada
         "content_markdown": contenido_md 
     }
 
@@ -122,13 +122,11 @@ def generar_documento_yaml_final(ruta_json, ruta_md):
     datos_completos = procesar_metadatos(json_data, contenido_md)
 
     # Definir nombre de salida .yaml
-    nombre_base = os.path.splitext(os.path.basename(ruta_md))[0]
+    nombre_base = os.path.splitext(os.path.basename(ruta_md))[0].replace("_jerarquizado", "")
     ruta_salida = os.path.join(os.path.dirname(ruta_md), f"{nombre_base}_canonico.yaml")
 
     # Guardar el archivo YAML
     with open(ruta_salida, "w", encoding="utf-8") as f:
-        # allow_unicode=True para mantener tildes y eñes
-        # sort_keys=False para mantener el orden definido en el diccionario
         yaml.dump(datos_completos, f, allow_unicode=True, sort_keys=False, default_flow_style=False)
     
     print(f"Éxito: Documento YAML consolidado generado en '{ruta_salida}'")
