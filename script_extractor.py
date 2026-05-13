@@ -108,10 +108,11 @@ def extraer_a_markdown_directo(buffer_pdf, nombre_original):
 
     patron_codigo_auxiliar = re.compile(r'\b(EXP-LUJ|ACTDB-LUJ)\s*[:\-]?\s*\d+[\/\-]\d{2,4}\b', re.IGNORECASE)
     
-    # --- NUEVO PATRÓN DE CIUDAD ---
-    # Busca las sedes de la UNLu justo antes de una fecha
     patron_ciudad_emision = re.compile(r'\b(Luj[aá]n|Campana|Chivilcoy|San\s+Miguel|CABA|Buenos\s+Aires|Capital\s+Federal)\b\s*,?\s*(?:\d{1,2}\s*(?:de\s*)?(?:[a-zA-Z]{3,10})\s*(?:de\s*)?\d{2,4}|\d{1,2}[\/\-]\d{1,2}[\/\-]\d{2,4})', re.IGNORECASE)
-    # ------------------------------
+    
+    # --- NUEVO PATRÓN: Detecta el disclaimer web ---
+    patron_disclaimer_web = re.compile(r'(texto de los documentos publicados|validez para su presentación en terceras|de gestión de doc\. y actos adm)', re.IGNORECASE)
+    # -----------------------------------------------
 
     titulo_encontrado = None
 
@@ -267,6 +268,14 @@ def extraer_a_markdown_directo(buffer_pdf, nombre_original):
                 texto_unido_plano = re.sub(r'\s{2,}', ' ', texto_unido_plano).strip()
 
                 if texto_unido_plano:
+                    
+                    # --- NUEVA INTERCEPCIÓN QUIRÚRGICA ---
+                    if patron_disclaimer_web.search(texto_unido_plano):
+                        info_pagina["has_web_disclaimer"] = True
+                        primer_bloque_pagina = False
+                        continue
+                    # -------------------------------------
+
                     textos_bloques_pagina.append(texto_unido_plano)
                     
                     match_norma = patron_titulo_norma.search(texto_unido_plano)
@@ -287,16 +296,13 @@ def extraer_a_markdown_directo(buffer_pdf, nombre_original):
                         if fecha_norm and fecha_norm not in metadata_json["detected_entities"]["date_candidates"]:
                             metadata_json["detected_entities"]["date_candidates"].append(fecha_norm)
                     
-                    # --- NUEVA LÓGICA DE EXTRACCIÓN DE CIUDAD ---
                     for match in patron_ciudad_emision.finditer(texto_unido_plano):
                         ciudad_detectada = match.group(1).upper()
-                        # Normalizamos Luján para evitar variaciones con o sin tilde
                         if ciudad_detectada in ["LUJAN", "LUJÁN"]:
                             ciudad_detectada = "LUJÁN"
                             
                         if ciudad_detectada not in metadata_json["detected_entities"]["city_candidates"]:
                             metadata_json["detected_entities"]["city_candidates"].append(ciudad_detectada)
-                    # --------------------------------------------
 
                     if patron_visto.search(texto_unido_plano):
                         info_pagina["markers"].add("VISTO")
@@ -311,9 +317,6 @@ def extraer_a_markdown_directo(buffer_pdf, nombre_original):
                         info_pagina["has_annex_start"] = True
                         metadata_json["global_hints"]["has_annexes"] = True
                         
-                    if "validez para su presentación en terceras" in texto_unido_plano.lower():
-                        info_pagina["has_web_disclaimer"] = True
-
                     if patron_codigo_auxiliar.search(texto_unido_plano):
                         metadata_json["global_hints"]["has_auxiliary_codes"] = True
 
