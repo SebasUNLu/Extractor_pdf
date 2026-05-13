@@ -74,8 +74,21 @@ def extraer_a_markdown_directo(buffer_pdf, nombre_original):
         margen_superior = cp.y0 + (alto * 0.20)
         margen_inferior = cp.y0 + (alto * 0.96)
 
-        tabs = pagina.find_tables(strategy="lines", snap_tolerance=4)
-        areas_tablas = [t.bbox for t in tabs.tables]
+        #tabs = pagina.find_tables(strategy="lines", snap_tolerance=4)
+        #areas_tablas = [t.bbox for t in tabs.tables]
+        
+        
+        #bloque que soluciona el error de encontrar tablas inexistentes
+        #####
+        tabs = pagina.find_tables(strategy="lines_strict", snap_tolerance=4)
+        areas_tablas = []
+        
+        for t in tabs.tables:
+            if t.row_count > 1 and t.col_count <= 8:
+                areas_tablas.append(t.bbox)
+        
+        
+        #####
         tablas_procesadas = []
 
         #bloques = pagina.get_text("dict")["blocks"]
