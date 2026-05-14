@@ -9,21 +9,44 @@ def procesar_metadatos(json_data, contenido_md):
     Toma los 'hints' del JSON y el texto del Markdown para tomar
     las decisiones definitivas y normalizar la metadata.
     """
-    # 1. Definir el tipo de documento
-    doc_id_hint = json_data.get("document_id_hint", "unknown")
-    if "res_" in doc_id_hint:
+    # 1. Definir el tipo de documento (Resolución, Disposición o Unknown)
+    doc_id_hint = json_data.get("document_id_hint", "unknown").lower()
+    
+    # NUEVA LÓGICA: Extraemos la primera línea relevante del MD para inspeccionarla
+    lineas_md = [l.strip() for l in contenido_md.split('\n') if l.strip()]
+    primera_linea = lineas_md[0].lower() if lineas_md else ""
+
+    # Prioridad 1: Hint del ID de documento
+    if doc_id_hint.startswith("res_"):
         document_type = "resolucion"
-    elif "disp_" in doc_id_hint:
+    elif doc_id_hint.startswith("disp_"):
         document_type = "disposicion"
+    
+    # Prioridad 2: Inspección de la primera línea del MD (títulos #)
+    elif "resolución" in primera_linea or "resolucion" in primera_linea:
+        document_type = "resolucion"
+    elif "disposición" in primera_linea or "disposicion" in primera_linea:
+        document_type = "disposicion"
+    
     else:
-        document_type = "unknown"
+        # Prioridad 3: Lógica de respaldo en candidatos detectados
+        candidates = json_data.get("detected_entities", {}).get("document_code_candidates", [])
+        if candidates:
+            primer_cand = candidates[0].lower()
+            if "resolución" in primer_cand or "resolucion" in primer_cand:
+                document_type = "resolucion"
+            elif "disposición" in primer_cand or "disposicion" in primer_cand:
+                document_type = "disposicion"
+            else:
+                document_type = "unknown"
+        else:
+            document_type = "unknown"
 
     # 2. Extraer Código y Número del documento principal
     candidates = json_data.get("detected_entities", {}).get("document_code_candidates", [])
     document_code = "unknown"
     document_number = "unknown"
     if candidates:
-        # Ejemplo esperado: "RESOLUCIÓN RESHCS-LUJ: 0000206-24"
         partes = candidates[0].split(":")
         if len(partes) >= 2:
             document_code = partes[0].split(" ")[-1].strip()
@@ -41,18 +64,16 @@ def procesar_metadatos(json_data, contenido_md):
     city_cands = json_data.get("detected_entities", {}).get("city_candidates", [])
     city = city_cands[0].capitalize() if city_cands else "unknown"
 
-    # 5. Resolver Anexos (Cruzando JSON con el Markdown)
+    # 5. Resolver Anexos
     has_annexes = json_data.get("global_hints", {}).get("has_annexes", False)
-    # Contamos exactamente cuántas veces aparece un título de anexo en el MD
     annex_count = len(re.findall(r'^#\s*(ANEXO|Anexo)', contenido_md, re.MULTILINE))
     if has_annexes and annex_count == 0:
         annex_count = 1
 
     # 6. Códigos Auxiliares
-    # CAMBIO: Ahora los tomamos directamente del array 'auxiliary_codes' que generó el extractor
     auxiliary_codes = json_data.get("global_hints", {}).get("auxiliary_codes", [])
 
-    # 7. Notas de publicación (Disclaimer web)
+    # 7. Notas de publicación
     publication_notes = []
     for page in json_data.get("pages", []):
         if page.get("has_web_disclaimer"):
@@ -73,11 +94,11 @@ def procesar_metadatos(json_data, contenido_md):
 
     # CONSTRUCCIÓN DEL DICCIONARIO CANÓNICO
     yaml_dict = {
-        "document_id": doc_id_hint,
+        "document_id": json_data.get("document_id_hint", "unknown"),
         "source_pdf": json_data.get("source_pdf", "unknown"),
         "source_system": source_system,
         "document_type": document_type,
-        "issuing_body": "unknown",
+        "issuing_body": "unknown", 
         "institution": "Universidad Nacional de Luján",
         "document_code": document_code,
         "document_number": document_number,
@@ -98,34 +119,28 @@ def procesar_metadatos(json_data, contenido_md):
         "normative_references": [],
         "auxiliary_codes": auxiliary_codes,
         "publication_notes": publication_notes,
-        "extraction_version": "v1.2", # Versión actualizada
+        "extraction_version": "v1.4", # Versión con detección de primera línea
         "content_markdown": contenido_md 
     }
 
     return yaml_dict
 
 def generar_documento_yaml_final(ruta_json, ruta_md):
-    # Validar archivos
     if not os.path.exists(ruta_json) or not os.path.exists(ruta_md):
         print(f"Error: No se encontraron los archivos base para {ruta_md}")
         return
 
-    # Leer JSON
     with open(ruta_json, 'r', encoding='utf-8') as f:
         json_data = json.load(f)
 
-    # Leer Markdown
     with open(ruta_md, 'r', encoding='utf-8') as f:
         contenido_md = f.read()
 
-    # Generar la metadata consolidada con el contenido incluido
     datos_completos = procesar_metadatos(json_data, contenido_md)
 
-    # Definir nombre de salida .yaml
-    nombre_base = os.path.splitext(os.path.basename(ruta_md))[0].replace("_jerarquizado", "")
+    nombre_base = os.path.splitext(os.path.basename(ruta_md))[0]
     ruta_salida = os.path.join(os.path.dirname(ruta_md), f"{nombre_base}_canonico.yaml")
 
-    # Guardar el archivo YAML
     with open(ruta_salida, "w", encoding="utf-8") as f:
         yaml.dump(datos_completos, f, allow_unicode=True, sort_keys=False, default_flow_style=False)
     
