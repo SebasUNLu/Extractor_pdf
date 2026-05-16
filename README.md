@@ -32,22 +32,37 @@ pip install pymupdf pandas tabulate
 ```
 
 ## 📖 Uso
-Para procesar un archivo individual, ejecuta el script pasando la ruta del PDF como argumento:
+El proyecto ofrece dos modalidades de uso dependiendo de si necesitas procesar un solo documento o una carpeta completa:
+
+### 1. Procesamiento Individual (Paso a paso)
+Ideal para probar o extraer la información de un solo archivo. Consta de dos pasos manuales:
+
+#### Paso A: Extracción
+Ejecuta el script extractor pasando la ruta del PDF como argumento:
+
 ```bash
 python script_extractor.py mi_documento.pdf
 ```
-El script generará un archivo llamado `mi_documento_procesado.md` en la misma carpeta.
+Esto generará dos archivos en la misma carpeta: `mi_documento.md` (con el texto limpio y jerarquizado) y `mi_documento.json` (con los metadatos auxiliares extraídos).
 
-### Procesador masivo
-Para ejecutar el script de forma automática en todos los pdf de una carpeta, necesitas:
-- Tener `script_extractor.py` y `procesador_masivo.py` en la misma carpeta
-- Ubicarte por consola en dicha carpeta
-- Tener una carpeta con los pdf a procesar
-- Ejecutar el siguiente comando
+#### Paso B: Post-Procesamiento
+Para consolidar la información en el formato final, ejecuta el post-procesador pasándole los dos archivos generados en el paso anterior:
+```bash
+python post_procesador.py mi_documento.json mi_documento.md
 ```
-python masivo.py /path_carpeta 
+Esto creará el archivo final mi_documento_canonico.yaml, el cual contendrá toda la metadata estructurada y el cuerpo del documento listo para ser consumido por otras aplicaciones.
+
+#### 2. Procesador masivo
+Ideal para procesar decenas o cientos de PDFs automáticamente. Este script se encarga de gestionar el pipeline completo (extracción + post-procesamiento) de forma segura.
+
+Ubícate en la raíz del proyecto y ejecuta el procesador masivo indicando la ruta absoluta o relativa de la carpeta que contiene los PDFs:
+```bash
+python procesador_masivo.py /ruta/a/la/carpeta_con_pdfs
 ```
-Los resultados se guardarán en una nueva carpeta llamada `resultados_extractor`, y se generará un `errores_extraccion.log` para loguear cualquier error que pueda surgir en el proceso.
+El sistema procesará cada archivo y automáticamente guardará los resultados finales (`.md`, `.json` y `_canonico.yaml`) de forma ordenada en una carpeta llamada resultados_extractor creada en tu directorio actual.
+
+Se generará un archivo `errores_extraccion.log` para registrar de manera transparente cualquier PDF que haya fallado o presentado problemas durante el proceso.
+
 
 ## 📁 Estructura del Proyecto
 - `script_unificado.py`: El core del proyecto que contiene ambas fases de procesamiento.
@@ -57,5 +72,6 @@ Los resultados se guardarán en una nueva carpeta llamada `resultados_extractor`
 # Debes tener ambos scripts y los pdf a procesar en la misma carpeta
 python procesador_masivo.py
 ```
+- `procesador_masivo.py`: Orquestador diseñado para procesar todos los PDFs de un directorio en lote, gestionando la ejecución secuencial de los scripts anteriores y manejando los logs.
 
 - `/Pruebas`: Carpeta donde se guardan las pruebas realizadas con el script para poder comparar resultados con los documentos originales.
