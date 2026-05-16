@@ -145,8 +145,12 @@ def extraer_a_markdown_directo(buffer_pdf, nombre_original):
         margen_superior = cp.y0 + (alto * 0.20)
         margen_inferior = alto
 
-        tabs = pagina.find_tables(strategy="lines", snap_tolerance=4)
-        areas_tablas = [t.bbox for t in tabs.tables]
+        tabs = pagina.find_tables(strategy="lines_strict", snap_tolerance=4)
+        areas_tablas = []
+        for t in tabs.tables:
+            # Filtro: Una tabla real suele tener más de 1 fila y no tener una cantidad absurda de columnas
+            if t.row_count > 1 and t.col_count <= 8:
+                areas_tablas.append(t.bbox)
         tablas_procesadas = []
 
         bloques = pagina.get_text("dict")["blocks"]
