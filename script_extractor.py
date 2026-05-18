@@ -111,7 +111,13 @@ def extraer_a_markdown_directo(buffer_pdf, nombre_original):
     patron_ciudad_emision = re.compile(r'\b(Luj[aá]n|Campana|Chivilcoy|San\s+Miguel|CABA|Buenos\s+Aires|Capital\s+Federal)\b\s*,?\s*(?:\d{1,2}\s*(?:de\s*)?(?:[a-zA-Z]{3,10})\s*(?:de\s*)?\d{2,4}|\d{1,2}[\/\-]\d{1,2}[\/\-]\d{2,4})', re.IGNORECASE)
     
     patron_disclaimer_web = re.compile(r'(texto de los documentos publicados|validez para su presentación en terceras|de gestión de doc\. y actos adm)', re.IGNORECASE)
-
+    # Nuevos patrones para entidades específicas
+    patron_emisor = re.compile(r'\b(H\.\s*CONSEJO\s+SUPERIOR|CONSEJO\s+DIRECTIVO|RECTORADO|DEPARTAMENTO\s+DE\s+[A-Z\sÁÉÍÓÚ]+)\b', re.IGNORECASE)
+    patron_firmante = re.compile(r'(?:Prof\.|Lic\.|Dr\.|Ing\.|Bioq\.|Esp\.)\s+([A-Z][a-záéíóúüñ]+\s+[A-Z][a-záéíóúüñ]+\s*(?:[A-Z][a-záéíóúüñ]+\s*)*[A-ZÁÉÍÓÚÑ\s]+)')
+    patron_persona = re.compile(r'([A-Z][a-záéíóúüñ]+(?:\s+[A-Z][a-záéíóúüñ]+)*\s+[A-ZÁÉÍÓÚÑ]+(?:\s+[A-ZÁÉÍÓÚÑ]+)*)\s*(?:\(D\.N\.I|\(Legajo|D\.N\.I|Legajo)')
+    patron_normativa = re.compile(r'\b(Ley\s+N?[°º]?\s*\d+\.?\d*|(?:Resolución|Disposición)\s+(?:RESHCS|DISPPCD|DISPSECADM|RES|DISP)[A-Z\-]*[:\s]*\d+[-/]\d+)\b', re.IGNORECASE)
+    patron_carrera = re.compile(r'\b(Licenciatura\s+en\s+[A-Za-záéíóúüñ\s]+|Ingeniería\s+[A-Za-záéíóúüñ\s]+|Profesorado\s+en\s+[A-Za-záéíóúüñ\s]+)\b', re.IGNORECASE)
+    #
     titulo_encontrado = None
 
     metadata_json = {
@@ -129,8 +135,14 @@ def extraer_a_markdown_directo(buffer_pdf, nombre_original):
             "document_code_candidates": [],
             "date_candidates": [],
             "city_candidates": [],
-            "issuing_body_candidates": []
-        },
+            "issuing_body_candidates": [],
+            "signers_candidates": [],
+            "person_candidates": [],
+            "academic_unit_candidates": [],
+            "career_candidates": [],
+            "course_candidates": [],
+            "normative_candidates": []
+    },
         "warnings": []
     }
     
@@ -304,6 +316,35 @@ def extraer_a_markdown_directo(buffer_pdf, nombre_original):
                             
                         if ciudad_detectada not in metadata_json["detected_entities"]["city_candidates"]:
                             metadata_json["detected_entities"]["city_candidates"].append(ciudad_detectada)
+
+# --- EXTRACCIÓN DE ENTIDADES FALTANTES ---
+                    for match in patron_emisor.finditer(texto_unido_plano):
+                        emisor = match.group(1).strip().title()
+                        if emisor not in metadata_json["detected_entities"]["issuing_body_candidates"]:
+                            metadata_json["detected_entities"]["issuing_body_candidates"].append(emisor)
+                        if "Departamento" in emisor and emisor not in metadata_json["detected_entities"]["academic_unit_candidates"]:
+                            metadata_json["detected_entities"]["academic_unit_candidates"].append(emisor)
+
+                    for match in patron_firmante.finditer(texto_unido_plano):
+                        firmante = match.group(1).strip()
+                        if not any(f.get("name") == firmante for f in metadata_json["detected_entities"]["signers_candidates"]):
+                            metadata_json["detected_entities"]["signers_candidates"].append({"name": firmante, "role": "unknown"})
+
+                    for match in patron_persona.finditer(texto_unido_plano):
+                        persona = match.group(1).strip()
+                        if persona not in metadata_json["detected_entities"]["person_candidates"]:
+                            metadata_json["detected_entities"]["person_candidates"].append(persona)
+
+                    for match in patron_normativa.finditer(texto_unido_plano):
+                        norma = match.group(1).strip()
+                        if norma not in metadata_json["detected_entities"]["normative_candidates"]:
+                            metadata_json["detected_entities"]["normative_candidates"].append(norma)
+
+                    for match in patron_carrera.finditer(texto_unido_plano):
+                        carrera = match.group(1).strip()
+                        if carrera not in metadata_json["detected_entities"]["career_candidates"]:
+                            metadata_json["detected_entities"]["career_candidates"].append(carrera)
+                    # ----------------------------------------
 
                     if patron_visto.search(texto_unido_plano):
                         info_pagina["markers"].add("VISTO")

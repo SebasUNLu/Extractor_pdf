@@ -92,13 +92,29 @@ def procesar_metadatos(json_data, contenido_md):
     else:
         signature_mode = "embedded"
 
+    # 9. Recuperar entidades faltantes del JSON
+    entidades_brutas = json_data.get("detected_entities", {})
+
+    issuing_cands = entidades_brutas.get("issuing_body_candidates", [])
+    issuing_body = issuing_cands[0] if issuing_cands else "unknown"
+
+    signers = entidades_brutas.get("signers_candidates", [])
+    normative_references = entidades_brutas.get("normative_candidates", [])
+
+    referenced_entities = {
+        "persons": entidades_brutas.get("person_candidates", []),
+        "academic_units": entidades_brutas.get("academic_unit_candidates", []),
+        "careers": entidades_brutas.get("career_candidates", []),
+        "courses": entidades_brutas.get("course_candidates", [])
+    }
+    
     # CONSTRUCCIÓN DEL DICCIONARIO CANÓNICO
     yaml_dict = {
         "document_id": json_data.get("document_id_hint", "unknown"),
         "source_pdf": json_data.get("source_pdf", "unknown"),
         "source_system": source_system,
         "document_type": document_type,
-        "issuing_body": "unknown", 
+        "issuing_body": issuing_body,  # <-- CAMBIO
         "institution": "Universidad Nacional de Luján",
         "document_code": document_code,
         "document_number": document_number,
@@ -109,17 +125,12 @@ def procesar_metadatos(json_data, contenido_md):
         "annex_count": annex_count,
         "has_signature_page": has_sig_page,
         "signature_mode": signature_mode,
-        "signers": [], 
-        "referenced_entities": {
-            "persons": [],
-            "academic_units": [],
-            "careers": [],
-            "courses": []
-        },
-        "normative_references": [],
+        "signers": signers,  # <-- CAMBIO
+        "referenced_entities": referenced_entities,  # <-- CAMBIO
+        "normative_references": normative_references,  # <-- CAMBIO
         "auxiliary_codes": auxiliary_codes,
         "publication_notes": publication_notes,
-        "extraction_version": "v1.4", # Versión con detección de primera línea
+        "extraction_version": "v1.4",
         "content_markdown": contenido_md 
     }
 
