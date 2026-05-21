@@ -117,6 +117,7 @@ def extraer_a_markdown_directo(buffer_pdf, nombre_original):
     patron_persona = re.compile(r'([A-Z][a-záéíóúüñ]+(?:\s+[A-Z][a-záéíóúüñ]+)*\s+[A-ZÁÉÍÓÚÑ]+(?:\s+[A-ZÁÉÍÓÚÑ]+)*)\s*(?:\(D\.N\.I|\(Legajo|D\.N\.I|Legajo)')
     patron_normativa = re.compile(r'\b(Ley\s+N?[°º]?\s*\d+\.?\d*|(?:Resolución|Disposición)\s+(?:RESHCS|DISPPCD|DISPSECADM|RES|DISP)[A-Z\-]*[:\s]*\d+[-/]\d+)\b', re.IGNORECASE)
     patron_carrera = re.compile(r'\b(Licenciatura\s+en\s+[A-Za-záéíóúüñ\s]+|Ingeniería\s+[A-Za-záéíóúüñ\s]+|Profesorado\s+en\s+[A-Za-záéíóúüñ\s]+)\b', re.IGNORECASE)
+    patron_curso = re.compile(r'\b(?:Asignatura|Materia|Curso)?\s*[:\-]?\s*\(?(\d{5})\)?\s*[\-\.\–]?\s*([A-ZÁÉÍÓÚ][A-Za-záéíóúüñI\s]+)(?=[,;\.\n]|$)', re.IGNORECASE)
     #
     titulo_encontrado = None
 
@@ -317,7 +318,7 @@ def extraer_a_markdown_directo(buffer_pdf, nombre_original):
                         if ciudad_detectada not in metadata_json["detected_entities"]["city_candidates"]:
                             metadata_json["detected_entities"]["city_candidates"].append(ciudad_detectada)
 
-# --- EXTRACCIÓN DE ENTIDADES FALTANTES ---
+                    # --- EXTRACCIÓN DE ENTIDADES FALTANTES ---
                     for match in patron_emisor.finditer(texto_unido_plano):
                         emisor = match.group(1).strip().title()
                         if emisor not in metadata_json["detected_entities"]["issuing_body_candidates"]:
@@ -344,6 +345,32 @@ def extraer_a_markdown_directo(buffer_pdf, nombre_original):
                         carrera = match.group(1).strip()
                         if carrera not in metadata_json["detected_entities"]["career_candidates"]:
                             metadata_json["detected_entities"]["career_candidates"].append(carrera)
+                            
+                    for linea_individual in lineas_temp:
+                        for match in patron_curso.finditer(linea_individual):
+                            codigo_curso = match.group(1).strip()
+                            nombre_curso_bruto = match.group(2).strip()
+                            
+                            # Limpieza de seguridad: quitamos conectores (y, de, para) si quedaron sueltos al final de la línea
+                            nombre_limpio = re.sub(r'\s+(?:para|del?|con|y|que|por|el|la|los|las|de)\s*$', '', nombre_curso_bruto, flags=re.IGNORECASE).strip()
+                            
+                            # Normalizamos a formato Título (Letra Capital)
+                            nombre_title = nombre_limpio.title()
+                            nombre_title = nombre_title.replace(" En ", " en ").replace(" De ", " de ").replace(" Del ", " del ").replace(" Y ", " y ")
+                            
+                            # Evitamos que los números romanos de las materias queden en minúscula (ej: Ii -> II)
+                            nombre_title = re.sub(r'\bIi+\b', lambda x: x.group().upper(), nombre_title) 
+                            nombre_title = re.sub(r'\bIv\b|\bVi+\b|\bIx\b', lambda x: x.group().upper(), nombre_title)
+
+                            # Armamos el objeto canónico tal como lo requiere el YAML
+                            curso_obj = {
+                                "code": codigo_curso,
+                                "name": nombre_title
+                            }
+                            
+                            # Verificamos que no esté duplicado antes de agregarlo
+                            if not any(c.get("code") == codigo_curso for c in metadata_json["detected_entities"]["course_candidates"]):
+                                metadata_json["detected_entities"]["course_candidates"].append(curso_obj)
                     # ----------------------------------------
 
                     if patron_visto.search(texto_unido_plano):
