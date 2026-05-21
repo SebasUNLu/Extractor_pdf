@@ -111,14 +111,14 @@ def extraer_a_markdown_directo(buffer_pdf, nombre_original):
     patron_ciudad_emision = re.compile(r'\b(Luj[aá]n|Campana|Chivilcoy|San\s+Miguel|CABA|Buenos\s+Aires|Capital\s+Federal)\b\s*,?\s*(?:\d{1,2}\s*(?:de\s*)?(?:[a-zA-Z]{3,10})\s*(?:de\s*)?\d{2,4}|\d{1,2}[\/\-]\d{1,2}[\/\-]\d{2,4})', re.IGNORECASE)
     
     patron_disclaimer_web = re.compile(r'(texto de los documentos publicados|validez para su presentación en terceras|de gestión de doc\. y actos adm)', re.IGNORECASE)
-    # Nuevos patrones para entidades específicas
+    # Patrones para entidades específicas
     patron_emisor = re.compile(r'\b(H\.\s*CONSEJO\s+SUPERIOR|CONSEJO\s+DIRECTIVO|RECTORADO|DEPARTAMENTO\s+DE\s+[A-Z\sÁÉÍÓÚ]+)\b', re.IGNORECASE)
     patron_firmante = re.compile(r'(?:Prof\.|Lic\.|Dr\.|Ing\.|Bioq\.|Esp\.)\s+([A-Z][a-záéíóúüñ]+\s+[A-Z][a-záéíóúüñ]+\s*(?:[A-Z][a-záéíóúüñ]+\s*)*[A-ZÁÉÍÓÚÑ\s]+)')
     patron_persona = re.compile(r'([A-Z][a-záéíóúüñ]+(?:\s+[A-Z][a-záéíóúüñ]+)*\s+[A-ZÁÉÍÓÚÑ]+(?:\s+[A-ZÁÉÍÓÚÑ]+)*)\s*(?:\(D\.N\.I|\(Legajo|D\.N\.I|Legajo)')
     patron_normativa = re.compile(r'\b(Ley\s+N?[°º]?\s*\d+\.?\d*|(?:Resolución|Disposición)\s+(?:RESHCS|DISPPCD|DISPSECADM|RES|DISP)[A-Z\-]*[:\s]*\d+[-/]\d+)\b', re.IGNORECASE)
     patron_carrera = re.compile(r'\b(Licenciatura\s+en\s+[A-Za-záéíóúüñ\s]+|Ingeniería\s+[A-Za-záéíóúüñ\s]+|Profesorado\s+en\s+[A-Za-záéíóúüñ\s]+)\b', re.IGNORECASE)
     patron_curso = re.compile(r'\b(?:Asignatura|Materia|Curso)?\s*[:\-]?\s*\(?(\d{5})\)?\s*[\-\.\–]?\s*([A-ZÁÉÍÓÚ][A-Za-záéíóúüñI\s]+)(?=[,;\.\n]|$)', re.IGNORECASE)
-    #
+    
     titulo_encontrado = None
 
     metadata_json = {
@@ -130,7 +130,7 @@ def extraer_a_markdown_directo(buffer_pdf, nombre_original):
             "has_signature_page": False,
             "has_annexes": False,
             "has_auxiliary_codes": False,
-            "auxiliary_codes": [] # NUEVO CAMPO: Array inicializado vacío
+            "auxiliary_codes": []
         },
         "detected_entities": {
             "document_code_candidates": [],
@@ -143,7 +143,7 @@ def extraer_a_markdown_directo(buffer_pdf, nombre_original):
             "career_candidates": [],
             "course_candidates": [],
             "normative_candidates": []
-    },
+        },
         "warnings": []
     }
     
@@ -161,7 +161,6 @@ def extraer_a_markdown_directo(buffer_pdf, nombre_original):
         tabs = pagina.find_tables(strategy="lines_strict", snap_tolerance=4)
         areas_tablas = []
         for t in tabs.tables:
-            # Filtro: Una tabla real suele tener más de 1 fila y no tener una cantidad absurda de columnas
             if t.row_count > 1 and t.col_count <= 8:
                 areas_tablas.append(t.bbox)
         tablas_procesadas = []
@@ -180,7 +179,9 @@ def extraer_a_markdown_directo(buffer_pdf, nombre_original):
             "has_annex_start": False,
             "has_web_disclaimer": False
         }
+        
         textos_bloques_pagina = []
+        firmas_pagina = [] # NUEVA LISTA: Para almacenar temporalmente las firmas de esta página
 
         for idx, b in enumerate(bloques):
             if b["type"] != 0 or idx in indices_saltados: continue
@@ -283,6 +284,8 @@ def extraer_a_markdown_directo(buffer_pdf, nombre_original):
                 texto_unido_plano = " ".join([texto_sub, texto_cuerpo]).strip()
                 texto_unido_plano = re.sub(r'\s{2,}', ' ', texto_unido_plano).strip()
 
+                es_bloque_firma = False # Flag para saber si interceptamos este bloque
+
                 if texto_unido_plano:
                     
                     if patron_disclaimer_web.search(texto_unido_plano):
@@ -330,6 +333,13 @@ def extraer_a_markdown_directo(buffer_pdf, nombre_original):
                         firmante = match.group(1).strip()
                         if not any(f.get("name") == firmante for f in metadata_json["detected_entities"]["signers_candidates"]):
                             metadata_json["detected_entities"]["signers_candidates"].append({"name": firmante, "role": "unknown"})
+                        es_bloque_firma = True
+
+                    # Si es firma, la atrapamos para la lista del final de hoja
+                    if es_bloque_firma:
+                        texto_firma_limpio = texto_unido_plano.replace('\n', ' ')
+                        if texto_firma_limpio not in firmas_pagina:
+                            firmas_pagina.append(texto_firma_limpio)
 
                     for match in patron_persona.finditer(texto_unido_plano):
                         persona = match.group(1).strip()
@@ -351,24 +361,17 @@ def extraer_a_markdown_directo(buffer_pdf, nombre_original):
                             codigo_curso = match.group(1).strip()
                             nombre_curso_bruto = match.group(2).strip()
                             
-                            # Limpieza de seguridad: quitamos conectores (y, de, para) si quedaron sueltos al final de la línea
                             nombre_limpio = re.sub(r'\s+(?:para|del?|con|y|que|por|el|la|los|las|de)\s*$', '', nombre_curso_bruto, flags=re.IGNORECASE).strip()
-                            
-                            # Normalizamos a formato Título (Letra Capital)
                             nombre_title = nombre_limpio.title()
                             nombre_title = nombre_title.replace(" En ", " en ").replace(" De ", " de ").replace(" Del ", " del ").replace(" Y ", " y ")
-                            
-                            # Evitamos que los números romanos de las materias queden en minúscula (ej: Ii -> II)
                             nombre_title = re.sub(r'\bIi+\b', lambda x: x.group().upper(), nombre_title) 
                             nombre_title = re.sub(r'\bIv\b|\bVi+\b|\bIx\b', lambda x: x.group().upper(), nombre_title)
 
-                            # Armamos el objeto canónico tal como lo requiere el YAML
                             curso_obj = {
                                 "code": codigo_curso,
                                 "name": nombre_title
                             }
                             
-                            # Verificamos que no esté duplicado antes de agregarlo
                             if not any(c.get("code") == codigo_curso for c in metadata_json["detected_entities"]["course_candidates"]):
                                 metadata_json["detected_entities"]["course_candidates"].append(curso_obj)
                     # ----------------------------------------
@@ -386,14 +389,12 @@ def extraer_a_markdown_directo(buffer_pdf, nombre_original):
                         info_pagina["has_annex_start"] = True
                         metadata_json["global_hints"]["has_annexes"] = True
                         
-                    # --- NUEVA LÓGICA DE COLECCIÓN DE CÓDIGOS AUXILIARES ---
                     matches_aux = patron_codigo_auxiliar.finditer(texto_unido_plano)
                     for m in matches_aux:
                         cod = m.group(0).strip()
                         if cod not in metadata_json["global_hints"]["auxiliary_codes"]:
                             metadata_json["global_hints"]["auxiliary_codes"].append(cod)
                             metadata_json["global_hints"]["has_auxiliary_codes"] = True
-                    # ------------------------------------------------------
 
                 if not titulo_encontrado:
                     match = patron_titulo_norma.search(texto_unido_plano)
@@ -523,28 +524,37 @@ def extraer_a_markdown_directo(buffer_pdf, nombre_original):
                         else:
                             texto_unido = procesar_vinetas_inline(texto_unido_plano)
                 
-                if primer_bloque_pagina and contenido_final:
-                    ultimo_bloque = contenido_final[-1].rstrip()
-                    lineas_ultimo = [l for l in ultimo_bloque.split('\n') if l.strip()]
-                    
-                    if lineas_ultimo:
-                        ultima_linea = lineas_ultimo[-1].strip()
+                # Evitar duplicación de la firma en el flujo de Markdown
+                if not es_bloque_firma:
+                    if primer_bloque_pagina and contenido_final:
+                        ultimo_bloque = contenido_final[-1].rstrip()
+                        lineas_ultimo = [l for l in ultimo_bloque.split('\n') if l.strip()]
                         
-                        if (not ultima_linea.endswith('.') and 
-                            not ultima_linea.endswith(':') and 
-                            not ultima_linea.startswith('#') and 
-                            not ultima_linea.startswith('|') and 
-                            not texto_unido.startswith('#') and 
-                            not texto_unido.startswith('|') and 
-                            not texto_unido.startswith('- ') and 
-                            '\n## ' not in texto_unido):
+                        if lineas_ultimo:
+                            ultima_linea = lineas_ultimo[-1].strip()
                             
-                            contenido_final[-1] = ultimo_bloque + " " + texto_unido
-                            primer_bloque_pagina = False
-                            continue
-                
-                contenido_final.append(texto_unido)
+                            if (not ultima_linea.endswith('.') and 
+                                not ultima_linea.endswith(':') and 
+                                not ultima_linea.startswith('#') and 
+                                not ultima_linea.startswith('|') and 
+                                not texto_unido.startswith('#') and 
+                                not texto_unido.startswith('|') and 
+                                not texto_unido.startswith('- ') and 
+                                '\n## ' not in texto_unido):
+                                
+                                contenido_final[-1] = ultimo_bloque + " " + texto_unido
+                                primer_bloque_pagina = False
+                                continue
+                    
+                    contenido_final.append(texto_unido)
                 primer_bloque_pagina = False
+
+        # --- VOLCADO DE FIRMAS AL FINAL DE LA PÁGINA ---
+        if firmas_pagina:
+            info_pagina["has_signature_block"] = True
+            metadata_json["global_hints"]["has_signature_page"] = True
+            bloque_firmas = "\n\n## Firmas\n" + "\n".join([f"- {f}" for f in firmas_pagina])
+            contenido_final.append(bloque_firmas)
 
         info_pagina["text"] = "\n".join(textos_bloques_pagina)
         info_pagina["markers"] = list(info_pagina["markers"])
