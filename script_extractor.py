@@ -111,6 +111,7 @@ def extraer_a_markdown_directo(buffer_pdf, nombre_original):
     patron_ciudad_emision = re.compile(r'\b(Luj[aá]n|Campana|Chivilcoy|San\s+Miguel|CABA|Buenos\s+Aires|Capital\s+Federal)\b\s*,?\s*(?:\d{1,2}\s*(?:de\s*)?(?:[a-zA-Z]{3,10})\s*(?:de\s*)?\d{2,4}|\d{1,2}[\/\-]\d{1,2}[\/\-]\d{2,4})', re.IGNORECASE)
     
     patron_disclaimer_web = re.compile(r'(texto de los documentos publicados|validez para su presentación en terceras|de gestión de doc\. y actos adm)', re.IGNORECASE)
+    
     # Patrones para entidades específicas
     patron_emisor = re.compile(r'\b(H\.\s*CONSEJO\s+SUPERIOR|CONSEJO\s+DIRECTIVO|RECTORADO|DEPARTAMENTO\s+DE\s+[A-Z\sÁÉÍÓÚ]+)\b', re.IGNORECASE)
     patron_firmante = re.compile(r'(?:Prof\.|Lic\.|Dr\.|Ing\.|Bioq\.|Esp\.)\s+([A-Z][a-záéíóúüñ]+\s+[A-Z][a-záéíóúüñ]+\s*(?:[A-Z][a-záéíóúüñ]+\s*)*[A-ZÁÉÍÓÚÑ\s]+)')
@@ -118,6 +119,9 @@ def extraer_a_markdown_directo(buffer_pdf, nombre_original):
     patron_normativa = re.compile(r'\b(Ley\s+N?[°º]?\s*\d+\.?\d*|(?:Resolución|Disposición)\s+(?:RESHCS|DISPPCD|DISPSECADM|RES|DISP)[A-Z\-]*[:\s]*\d+[-/]\d+)\b', re.IGNORECASE)
     patron_carrera = re.compile(r'\b(Licenciatura\s+en\s+[A-Za-záéíóúüñ\s]+|Ingeniería\s+[A-Za-záéíóúüñ\s]+|Profesorado\s+en\s+[A-Za-záéíóúüñ\s]+)\b', re.IGNORECASE)
     patron_curso = re.compile(r'\b(?:Asignatura|Materia|Curso)?\s*[:\-]?\s*\(?(\d{5})\)?\s*[\-\.\–]?\s*([A-ZÁÉÍÓÚ][A-Za-záéíóúüñI\s]+)(?=[,;\.\n]|$)', re.IGNORECASE)
+    
+    # NUEVO PATRÓN: Detecta específicamente la "Hoja de firmas" del sistema nuevo
+    patron_hoja_firmas = re.compile(r'\bHoja\s+de\s+firmas\b', re.IGNORECASE)
     
     titulo_encontrado = None
 
@@ -181,7 +185,7 @@ def extraer_a_markdown_directo(buffer_pdf, nombre_original):
         }
         
         textos_bloques_pagina = []
-        firmas_pagina = [] # NUEVA LISTA: Para almacenar temporalmente las firmas de esta página
+        firmas_pagina = [] 
 
         for idx, b in enumerate(bloques):
             if b["type"] != 0 or idx in indices_saltados: continue
@@ -200,8 +204,9 @@ def extraer_a_markdown_directo(buffer_pdf, nombre_original):
             if not texto_temp: continue
             
             es_anexo = bool(patron_anexo_inicio.match(texto_temp))
+            es_hoja_firmas = bool(patron_hoja_firmas.search(texto_temp)) # Identificamos si es el título
 
-            if not (margen_superior <= centro_y <= margen_inferior) and not es_anexo:
+            if not (margen_superior <= centro_y <= margen_inferior) and not es_anexo and not es_hoja_firmas:
                 continue
 
             esta_en_tabla = False
@@ -284,10 +289,15 @@ def extraer_a_markdown_directo(buffer_pdf, nombre_original):
                 texto_unido_plano = " ".join([texto_sub, texto_cuerpo]).strip()
                 texto_unido_plano = re.sub(r'\s{2,}', ' ', texto_unido_plano).strip()
 
-                es_bloque_firma = False # Flag para saber si interceptamos este bloque
+                es_bloque_firma = False
 
                 if texto_unido_plano:
                     
+                    # NUEVA LÓGICA: Detectar página exclusiva de firmas del sistema nuevo
+                    if patron_hoja_firmas.search(texto_unido_plano):
+                        print("hoja firma")
+                        metadata_json["global_hints"]["has_signature_page"] = True
+
                     if patron_disclaimer_web.search(texto_unido_plano):
                         info_pagina["has_web_disclaimer"] = True
                         primer_bloque_pagina = False
@@ -335,7 +345,6 @@ def extraer_a_markdown_directo(buffer_pdf, nombre_original):
                             metadata_json["detected_entities"]["signers_candidates"].append({"name": firmante, "role": "unknown"})
                         es_bloque_firma = True
 
-                    # Si es firma, la atrapamos para la lista del final de hoja
                     if es_bloque_firma:
                         texto_firma_limpio = texto_unido_plano.replace('\n', ' ')
                         if texto_firma_limpio not in firmas_pagina:
@@ -524,7 +533,6 @@ def extraer_a_markdown_directo(buffer_pdf, nombre_original):
                         else:
                             texto_unido = procesar_vinetas_inline(texto_unido_plano)
                 
-                # Evitar duplicación de la firma en el flujo de Markdown
                 if not es_bloque_firma:
                     if primer_bloque_pagina and contenido_final:
                         ultimo_bloque = contenido_final[-1].rstrip()
@@ -552,7 +560,6 @@ def extraer_a_markdown_directo(buffer_pdf, nombre_original):
         # --- VOLCADO DE FIRMAS AL FINAL DE LA PÁGINA ---
         if firmas_pagina:
             info_pagina["has_signature_block"] = True
-            metadata_json["global_hints"]["has_signature_page"] = True
             bloque_firmas = "\n\n## Firmas\n" + "\n".join([f"- {f}" for f in firmas_pagina])
             contenido_final.append(bloque_firmas)
 
