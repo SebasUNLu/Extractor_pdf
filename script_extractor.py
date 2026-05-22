@@ -115,12 +115,14 @@ def extraer_a_markdown_directo(buffer_pdf, nombre_original):
     # Patrones para entidades específicas
     patron_emisor = re.compile(r'\b(H\.\s*CONSEJO\s+SUPERIOR|CONSEJO\s+DIRECTIVO|RECTORADO|DEPARTAMENTO\s+DE\s+[A-Z\sÁÉÍÓÚ]+)\b', re.IGNORECASE)
     patron_firmante = re.compile(r'(?:Prof\.|Lic\.|Dr\.|Ing\.|Bioq\.|Esp\.)\s+([A-Z][a-záéíóúüñ]+\s+[A-Z][a-záéíóúüñ]+\s*(?:[A-Z][a-záéíóúüñ]+\s*)*[A-ZÁÉÍÓÚÑ\s]+)')
+    
+    patron_firma_sudocu = re.compile(r'\b(Cargado por|Autorizado por|Firmado por)\s*:\s*([A-ZÁÉÍÓÚÑa-záéíóúüñ\s]+)', re.IGNORECASE)
+    
     patron_persona = re.compile(r'([A-Z][a-záéíóúüñ]+(?:\s+[A-Z][a-záéíóúüñ]+)*\s+[A-ZÁÉÍÓÚÑ]+(?:\s+[A-ZÁÉÍÓÚÑ]+)*)\s*(?:\(D\.N\.I|\(Legajo|D\.N\.I|Legajo)')
     patron_normativa = re.compile(r'\b(Ley\s+N?[°º]?\s*\d+\.?\d*|(?:Resolución|Disposición)\s+(?:RESHCS|DISPPCD|DISPSECADM|RES|DISP)[A-Z\-]*[:\s]*\d+[-/]\d+)\b', re.IGNORECASE)
     patron_carrera = re.compile(r'\b(Licenciatura\s+en\s+[A-Za-záéíóúüñ\s]+|Ingeniería\s+[A-Za-záéíóúüñ\s]+|Profesorado\s+en\s+[A-Za-záéíóúüñ\s]+)\b', re.IGNORECASE)
     patron_curso = re.compile(r'\b(?:Asignatura|Materia|Curso)?\s*[:\-]?\s*\(?(\d{5})\)?\s*[\-\.\–]?\s*([A-ZÁÉÍÓÚ][A-Za-záéíóúüñI\s]+)(?=[,;\.\n]|$)', re.IGNORECASE)
     
-    # NUEVO PATRÓN: Detecta específicamente la "Hoja de firmas" del sistema nuevo
     patron_hoja_firmas = re.compile(r'\bHoja\s+de\s+firmas\b', re.IGNORECASE)
     
     titulo_encontrado = None
@@ -204,9 +206,10 @@ def extraer_a_markdown_directo(buffer_pdf, nombre_original):
             if not texto_temp: continue
             
             es_anexo = bool(patron_anexo_inicio.match(texto_temp))
-            es_hoja_firmas = bool(patron_hoja_firmas.search(texto_temp)) # Identificamos si es el título
+            es_hoja_firmas = bool(patron_hoja_firmas.search(texto_temp))
+            es_firma_bloque = bool(patron_firmante.search(texto_temp)) or bool(patron_firma_sudocu.search(texto_temp))
 
-            if not (margen_superior <= centro_y <= margen_inferior) and not es_anexo and not es_hoja_firmas:
+            if not (margen_superior <= centro_y <= margen_inferior) and not es_anexo and not es_hoja_firmas and not es_firma_bloque:
                 continue
 
             esta_en_tabla = False
@@ -293,9 +296,7 @@ def extraer_a_markdown_directo(buffer_pdf, nombre_original):
 
                 if texto_unido_plano:
                     
-                    # NUEVA LÓGICA: Detectar página exclusiva de firmas del sistema nuevo
                     if patron_hoja_firmas.search(texto_unido_plano):
-                        print("hoja firma")
                         metadata_json["global_hints"]["has_signature_page"] = True
 
                     if patron_disclaimer_web.search(texto_unido_plano):
@@ -339,16 +340,38 @@ def extraer_a_markdown_directo(buffer_pdf, nombre_original):
                         if "Departamento" in emisor and emisor not in metadata_json["detected_entities"]["academic_unit_candidates"]:
                             metadata_json["detected_entities"]["academic_unit_candidates"].append(emisor)
 
+                    # 1. Firmas Tradicionales
+                    es_firma_tradicional = False
                     for match in patron_firmante.finditer(texto_unido_plano):
                         firmante = match.group(1).strip()
                         if not any(f.get("name") == firmante for f in metadata_json["detected_entities"]["signers_candidates"]):
                             metadata_json["detected_entities"]["signers_candidates"].append({"name": firmante, "role": "unknown"})
                         es_bloque_firma = True
+                        es_firma_tradicional = True
 
-                    if es_bloque_firma:
+                    if es_firma_tradicional:
                         texto_firma_limpio = texto_unido_plano.replace('\n', ' ')
                         if texto_firma_limpio not in firmas_pagina:
                             firmas_pagina.append(texto_firma_limpio)
+                            
+                    # 2. Firmas Digitales (SUDOCU)
+                    for match in patron_firma_sudocu.finditer(texto_unido_plano):
+                        nombre = match.group(2).strip()
+                        
+                        # Guardamos con role "unknown" como se solicitó
+                        if not any(f.get("name") == nombre for f in metadata_json["detected_entities"]["signers_candidates"]):
+                            metadata_json["detected_entities"]["signers_candidates"].append({"name": nombre, "role": "unknown"})
+                            
+                        # Rescatamos SOLAMENTE el nombre para el Markdown
+                        if nombre not in firmas_pagina:
+                            firmas_pagina.append(nombre)
+                            
+                        es_bloque_firma = True
+                        
+                    # 3. Silenciador de basura técnica de SUDOCU 
+                    if metadata_json["global_hints"].get("has_signature_page"):
+                        if re.search(r'\b(Sistema:\s*sudocu|Fecha:\s*\d{2}/\d{2}/\d{4})\b', texto_unido_plano, re.IGNORECASE):
+                            es_bloque_firma = True 
 
                     for match in patron_persona.finditer(texto_unido_plano):
                         persona = match.group(1).strip()
