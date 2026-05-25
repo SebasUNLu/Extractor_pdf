@@ -114,8 +114,8 @@ def extraer_a_markdown_directo(buffer_pdf, nombre_original):
     
     # Patrones para entidades específicas
     patron_emisor = re.compile(r'\b(H\.\s*CONSEJO\s+SUPERIOR|CONSEJO\s+DIRECTIVO|RECTORADO|DEPARTAMENTO\s+DE\s+[A-Z\sÁÉÍÓÚ]+)\b', re.IGNORECASE)
-    patron_firmante = re.compile(r'(?:Prof\.|Lic\.|Dr\.|Ing\.|Bioq\.|Esp\.)\s+([A-Z][a-záéíóúüñ]+\s+[A-Z][a-záéíóúüñ]+\s*(?:[A-Z][a-záéíóúüñ]+\s*)*[A-ZÁÉÍÓÚÑ\s]+)')
-    
+    patron_firmante = re.compile(r'(?:(?:Prof\.|Lic\.|Dr\.|Ing\.|Bioq\.|Esp\.)\s+)+((?:[A-Z][a-záéíóúüñ]+\s+)*[A-ZÁÉÍÓÚÑ]+(?:\s+[A-ZÁÉÍÓÚÑ]+)*)(?:\s+(.*))?') 
+       
     patron_firma_sudocu = re.compile(r'\b(Cargado por|Autorizado por|Firmado por)\s*:\s*([A-ZÁÉÍÓÚÑa-záéíóúüñ\s]+)', re.IGNORECASE)
     
     patron_persona = re.compile(r'([A-Z][a-záéíóúüñ]+(?:\s+[A-Z][a-záéíóúüñ]+)*\s+[A-ZÁÉÍÓÚÑ]+(?:\s+[A-ZÁÉÍÓÚÑ]+)*)\s*(?:\(D\.N\.I|\(Legajo|D\.N\.I|Legajo)')
@@ -171,8 +171,41 @@ def extraer_a_markdown_directo(buffer_pdf, nombre_original):
                 areas_tablas.append(t.bbox)
         tablas_procesadas = []
 
-        bloques = pagina.get_text("dict")["blocks"]
-        bloques.sort(key=lambda b: (b["bbox"][1], b["bbox"][0]))
+        bloques_crudos = pagina.get_text("dict")["blocks"]
+        
+        # 1. Pre-ordenar por Y para asegurar un orden de lectura inicial
+        bloques_ordenados_y = sorted(bloques_crudos, key=lambda b: (b["bbox"][1], b["bbox"][0]))
+        
+        grupos = []
+        for b in bloques_ordenados_y:
+            # Si no es texto, lo dejamos en su propio grupo
+            if b.get("type", 1) != 0: 
+                grupos.append([b])
+                continue
+                
+            añadido = False
+            for g in grupos:
+                if g[-1].get("type", 1) != 0: continue
+                ultimo_b = g[-1]
+                
+                # Distancia vertical y solapamiento horizontal
+                dist_y = b["bbox"][1] - ultimo_b["bbox"][3]
+                x_overlap = max(0, min(b["bbox"][2], ultimo_b["bbox"][2]) - max(b["bbox"][0], ultimo_b["bbox"][0]))
+                
+                # Unimos a la misma columna si cumplen las condiciones
+                if -15 <= dist_y <= 60 and x_overlap > 10:
+                    g.append(b)
+                    añadido = True
+                    break
+            
+            if not añadido:
+                grupos.append([b])
+
+        # 2. Ordenar los grupos resultantes: primero por franja vertical y luego de izquierda a derecha
+        grupos.sort(key=lambda g: (g[0]["bbox"][1] // 20, g[0]["bbox"][0]))
+
+        # 3. Aplanar la lista
+        bloques = [b for g in grupos for b in g]
 
         indices_saltados = set()
         primer_bloque_pagina = True
@@ -591,6 +624,41 @@ def extraer_a_markdown_directo(buffer_pdf, nombre_original):
         metadata_json["pages"].append(info_pagina)
 
     doc.close()
+    
+    # --- LÓGICA POST-PROCESAMIENTO: ASIGNACIÓN DE ROLES (VERSIÓN COLUMNAS) ---
+    for pagina_info in metadata_json["pages"]:
+        if pagina_info.get("has_signature_block"):
+            lineas = [l.strip() for l in pagina_info["text"].split('\n') if l.strip()]
+            
+            for idx, linea in enumerate(lineas):
+                match = patron_firmante.search(linea)
+                if match:
+                    nombre = match.group(1).strip()
+                    # Intentamos usar el rol si cayó en la misma línea
+                    rol = match.group(2).strip() if match.group(2) else ""
+                    
+                    # Si no lo tenemos, buscamos en la línea de abajo y luego en la de arriba
+                    if not rol:
+                        candidatos_rol = []
+                        if idx + 1 < len(lineas): candidatos_rol.append(lineas[idx + 1])
+                        if idx - 1 >= 0: candidatos_rol.append(lineas[idx - 1])
+                        
+                        for posible_rol in candidatos_rol:
+                            # Filtros para no agarrar texto basura u otro nombre
+                            if patron_firmante.search(posible_rol): continue 
+                            if re.search(r'^(ART[IÍ]CULO|RESOLUCI[OÓ]N|DISPOSICI[OÓ]N|LUJ[AÁ]N|///|#|EXP-|VISTO|CONSIDERANDO)', posible_rol, re.IGNORECASE): continue
+                            if len(posible_rol) < 4: continue
+                            
+                            rol = posible_rol.title()
+                            break
+                    
+                    # Guardamos el rol en el JSON
+                    if rol:
+                        for candidato in metadata_json["detected_entities"]["signers_candidates"]:
+                            if candidato["name"] == nombre and candidato["role"] == "unknown":
+                                candidato["role"] = rol
+    # -----------------------------------------------------------------------------
+    
     
     if titulo_encontrado: 
         contenido_final.insert(0, titulo_encontrado)
