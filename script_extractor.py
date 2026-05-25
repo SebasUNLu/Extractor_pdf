@@ -7,6 +7,10 @@ import re
 import io
 import json
 
+TITULOS_FIRMA = r'Prof\.|Lic\.|Dr\.|Dra\.|Ing\.|Bioq\.|Esp\.|Mg\.|Mgter\.|Mag\.|Abog\.'
+NOMBRE_FIRMANTE = r'((?:(?:[A-ZÁÉÍÓÚÑ][a-záéíóúüñ]+|[A-ZÁÉÍÓÚÑ]\.)\s+)*(?:[A-ZÁÉÍÓÚÑ]{2,}|[A-ZÁÉÍÓÚÑ][a-záéíóúüñ]{2,})(?:\s+(?:[A-ZÁÉÍÓÚÑ]{2,}|[A-ZÁÉÍÓÚÑ][a-záéíóúüñ]{2,}))*)'
+ROL_FIRMANTE_KEYWORDS = r'(?:presidente|rector(?:a)?|secretari[oa]|subsecretari[oa]|director(?:a)?|decano|coordinador(?:a)?|jefe|responsable|vicedirector(?:a)?)'
+
 def normalizar_fecha(dia, mes_str, anio):
     """
     Normaliza fechas al formato ISO (YYYY-MM-DD) requerido por el YAML.
@@ -66,21 +70,52 @@ def es_rol_firmante_valido(rol):
         return False
 
     return bool(re.search(
-        r'\b(presidente|rector(?:a)?|secretari[oa]|subsecretari[oa]|director(?:a)?|decano|coordinador(?:a)?|jefe|responsable)\b',
+        rf'\b{ROL_FIRMANTE_KEYWORDS}\b',
         rol,
         re.IGNORECASE
     ))
+
+def extraer_nombre_y_rol_firmante(match):
+    nombre = re.sub(r'\s+', ' ', match.group(1)).strip()
+    rol_bruto = re.sub(r'\s+', ' ', match.group(2)).strip() if match.group(2) else ""
+    rol = limpiar_rol_firmante(rol_bruto)
+
+    partes_nombre = nombre.split()
+    if rol and partes_nombre and re.fullmatch(ROL_FIRMANTE_KEYWORDS, partes_nombre[-1], re.IGNORECASE):
+        rol = limpiar_rol_firmante(f"{partes_nombre[-1]} {rol_bruto}")
+        nombre = " ".join(partes_nombre[:-1]).strip()
+
+    return nombre, rol
 
 def es_texto_firma_tradicional_valido(texto_firma, match):
     texto = re.sub(r'\s+', ' ', texto_firma).strip()
     if len(texto) > 220 or re.search(r'[•●|]|https?://|doi\.org', texto, re.IGNORECASE):
         return False
 
-    rol_en_linea = match.group(2)
+    nombre, rol_en_linea = extraer_nombre_y_rol_firmante(match)
+    tiene_titulo = bool(re.match(rf'^(?:(?:{TITULOS_FIRMA})\s+)', texto, re.IGNORECASE))
+    if not tiene_titulo:
+        if len(texto) > 130:
+            return False
+        if re.search(r'[\d/:]', texto):
+            return False
+        if not re.search(r'\b[A-ZÁÉÍÓÚÑ]\.', nombre):
+            return False
+        if re.match(r'^(que|la|el|los|las|designar|resoluci[oó]n|disposici[oó]n|art[ií]culo|sr|sra|se[ñn]or)\b', nombre, re.IGNORECASE):
+            return False
+
     if rol_en_linea:
         return es_rol_firmante_valido(rol_en_linea)
 
     return len(texto) <= 100 and not re.search(r'\d{4}|[,;()]', texto)
+
+def buscar_firmantes_sin_titulo(texto, patron_firmante_sin_titulo):
+    texto_limpio = re.sub(r'\s+', ' ', texto).strip()
+    if len(texto_limpio) > 160:
+        return []
+    if not re.search(rf'\b{ROL_FIRMANTE_KEYWORDS}\b', texto_limpio, re.IGNORECASE):
+        return []
+    return list(patron_firmante_sin_titulo.finditer(texto_limpio))
 
 def buscar_firmante_por_texto(texto_firma, firmantes):
     texto_norm = re.sub(r'\s+', ' ', texto_firma).strip().lower()
@@ -92,7 +127,7 @@ def buscar_firmante_por_texto(texto_firma, firmantes):
 
 def nombre_con_titulo_desde_firma(texto_firma, nombre):
     patron = re.compile(
-        r'((?:(?:Prof\.|Lic\.|Dr\.|Ing\.|Bioq\.|Esp\.)\s+)*)' + re.escape(nombre),
+        rf'((?:(?:{TITULOS_FIRMA})\s+)*)' + re.escape(nombre),
         re.IGNORECASE
     )
     match = patron.search(texto_firma)
@@ -247,7 +282,8 @@ def extraer_a_markdown_directo(buffer_pdf, nombre_original):
     
     # Patrones para entidades específicas
     patron_emisor = re.compile(r'\b(H\.\s*CONSEJO\s+SUPERIOR|CONSEJO\s+DIRECTIVO|RECTORADO|DEPARTAMENTO\s+DE\s+[A-Z\sÁÉÍÓÚ]+)\b', re.IGNORECASE)
-    patron_firmante = re.compile(r'(?:(?:Prof\.|Lic\.|Dr\.|Ing\.|Bioq\.|Esp\.)\s+)+((?:[A-Z][a-záéíóúüñ]+\s+)*[A-ZÁÉÍÓÚÑ]{2,}(?:\s+[A-ZÁÉÍÓÚÑ]{2,})*)(?:[\s\.\-:]+(.*))?')
+    patron_firmante = re.compile(rf'(?:(?:{TITULOS_FIRMA})\s+)+{NOMBRE_FIRMANTE}(?:[\s\.\-:]+(.*))?')
+    patron_firmante_sin_titulo = re.compile(rf'\b{NOMBRE_FIRMANTE}[\s\.\-:]+({ROL_FIRMANTE_KEYWORDS}\b.*)', re.IGNORECASE)
        
     patron_firma_sudocu = re.compile(r'\b(Cargado por|Autorizado por|Firmado por)\s*:\s*([A-ZÁÉÍÓÚÑa-záéíóúüñ\s]+)', re.IGNORECASE)
     
@@ -373,7 +409,11 @@ def extraer_a_markdown_directo(buffer_pdf, nombre_original):
             
             es_anexo = bool(patron_anexo_inicio.match(texto_temp))
             es_hoja_firmas = bool(patron_hoja_firmas.search(texto_temp))
-            es_firma_bloque = bool(patron_firmante.search(texto_temp)) or bool(patron_firma_sudocu.search(texto_temp))
+            es_firma_bloque = (
+                bool(patron_firmante.search(texto_temp)) or
+                bool(buscar_firmantes_sin_titulo(texto_temp, patron_firmante_sin_titulo)) or
+                bool(patron_firma_sudocu.search(texto_temp))
+            )
 
             if not (margen_superior <= centro_y <= margen_inferior) and not es_anexo and not es_hoja_firmas and not es_firma_bloque:
                 continue
@@ -508,11 +548,12 @@ def extraer_a_markdown_directo(buffer_pdf, nombre_original):
 
                     # 1. Firmas Tradicionales
                     es_firma_tradicional = False
-                    for match in patron_firmante.finditer(texto_unido_plano):
+                    matches_firmantes = list(patron_firmante.finditer(texto_unido_plano))
+                    matches_firmantes.extend(buscar_firmantes_sin_titulo(texto_unido_plano, patron_firmante_sin_titulo))
+                    for match in matches_firmantes:
                         if not es_texto_firma_tradicional_valido(texto_unido_plano, match):
                             continue
-                        firmante = match.group(1).strip()
-                        rol_en_linea = limpiar_rol_firmante(match.group(2)) if match.group(2) else ""
+                        firmante, rol_en_linea = extraer_nombre_y_rol_firmante(match)
                         if not any(f.get("name") == firmante for f in metadata_json["detected_entities"]["signers_candidates"]):
                             metadata_json["detected_entities"]["signers_candidates"].append({
                                 "name": firmante,
@@ -771,12 +812,14 @@ def extraer_a_markdown_directo(buffer_pdf, nombre_original):
             
             for idx, linea in enumerate(lineas):
                 match = patron_firmante.search(linea)
+                if not match:
+                    matches_sin_titulo = buscar_firmantes_sin_titulo(linea, patron_firmante_sin_titulo)
+                    match = matches_sin_titulo[0] if matches_sin_titulo else None
                 if match:
                     if not es_texto_firma_tradicional_valido(linea, match):
                         continue
-                    nombre = match.group(1).strip()
                     # Intentamos usar el rol si cayó en la misma línea
-                    rol = limpiar_rol_firmante(match.group(2)) if match.group(2) else ""
+                    nombre, rol = extraer_nombre_y_rol_firmante(match)
                     
                     # Si no lo tenemos, buscamos en la línea de abajo y luego en la de arriba
                     if not rol:
@@ -786,7 +829,7 @@ def extraer_a_markdown_directo(buffer_pdf, nombre_original):
                         
                         for posible_rol in candidatos_rol:
                             # Filtros para no agarrar texto basura u otro nombre
-                            if patron_firmante.search(posible_rol): continue 
+                            if patron_firmante.search(posible_rol) or buscar_firmantes_sin_titulo(posible_rol, patron_firmante_sin_titulo): continue
                             if re.search(r'^(ART[IÍ]CULO|RESOLUCI[OÓ]N|DISPOSICI[OÓ]N|LUJ[AÁ]N|///|#|EXP-|VISTO|CONSIDERANDO)', posible_rol, re.IGNORECASE): continue
                             if len(posible_rol) < 4: continue
                             if not es_rol_firmante_valido(posible_rol): continue
