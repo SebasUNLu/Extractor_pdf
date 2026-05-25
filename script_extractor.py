@@ -41,6 +41,139 @@ def normalizar_fecha(dia, mes_str, anio):
         
     return f"{anio}-{mes}-{dia}"
 
+def limpiar_rol_firmante(rol):
+    """
+    Normaliza cargos detectados cerca de las firmas.
+    """
+    if not rol:
+        return ""
+
+    rol = re.sub(r'\s+', ' ', rol).strip(" .:-\t")
+    if not rol:
+        return ""
+
+    return rol[:1].upper() + rol[1:]
+
+def es_rol_firmante_valido(rol):
+    rol = limpiar_rol_firmante(rol)
+    if not rol or rol.lower() == "unknown":
+        return False
+
+    if len(rol) > 180:
+        return False
+
+    if re.search(r'(https?://|doi\.org|[•●]|bibliograf|revista|jornadas|tesis|anexo|art[ií]culo)', rol, re.IGNORECASE):
+        return False
+
+    return bool(re.search(
+        r'\b(presidente|rector(?:a)?|secretari[oa]|subsecretari[oa]|director(?:a)?|decano|coordinador(?:a)?|jefe|responsable)\b',
+        rol,
+        re.IGNORECASE
+    ))
+
+def es_texto_firma_tradicional_valido(texto_firma, match):
+    texto = re.sub(r'\s+', ' ', texto_firma).strip()
+    if len(texto) > 220 or re.search(r'[•●|]|https?://|doi\.org', texto, re.IGNORECASE):
+        return False
+
+    rol_en_linea = match.group(2)
+    if rol_en_linea:
+        return es_rol_firmante_valido(rol_en_linea)
+
+    return len(texto) <= 100 and not re.search(r'\d{4}|[,;()]', texto)
+
+def buscar_firmante_por_texto(texto_firma, firmantes):
+    texto_norm = re.sub(r'\s+', ' ', texto_firma).strip().lower()
+    for firmante in firmantes:
+        nombre = firmante.get("name", "")
+        if nombre and nombre.lower() in texto_norm:
+            return firmante
+    return None
+
+def nombre_con_titulo_desde_firma(texto_firma, nombre):
+    patron = re.compile(
+        r'((?:(?:Prof\.|Lic\.|Dr\.|Ing\.|Bioq\.|Esp\.)\s+)*)' + re.escape(nombre),
+        re.IGNORECASE
+    )
+    match = patron.search(texto_firma)
+    if match:
+        return re.sub(r'\s+', ' ', match.group(0)).strip()
+    return nombre
+
+def formatear_bloque_firmas_md(bloque, firmantes):
+    """
+    Reescribe el bloque ## Firmas usando los roles ya consolidados en el JSON.
+    """
+    lineas_formateadas = []
+
+    for linea in bloque.split('\n'):
+        linea_limpia = linea.strip()
+        if not linea_limpia.startswith("- "):
+            continue
+
+        firma_original = linea_limpia[2:].strip()
+        firmante = buscar_firmante_por_texto(firma_original, firmantes)
+        if not firmante:
+            lineas_formateadas.append(f"- {firma_original}")
+            continue
+
+        nombre = firmante.get("name", "").strip()
+        rol = limpiar_rol_firmante(firmante.get("role", ""))
+        nombre_visible = nombre_con_titulo_desde_firma(firma_original, nombre)
+
+        if es_rol_firmante_valido(rol):
+            lineas_formateadas.append(f"- {nombre_visible} - {rol}")
+        else:
+            lineas_formateadas.append(f"- {nombre_visible}")
+
+    if not lineas_formateadas:
+        return bloque
+
+    return "## Firmas\n" + "\n".join(lineas_formateadas)
+
+def quitar_roles_sueltos_antes_de_firmas(contenido_final, firmantes):
+    """
+    Quita lineas de cargos que ya van a quedar representadas dentro de ## Firmas.
+    """
+    roles = {
+        limpiar_rol_firmante(f.get("role", "")).lower()
+        for f in firmantes
+        if es_rol_firmante_valido(f.get("role", ""))
+    }
+
+    if not roles:
+        return contenido_final
+
+    resultado = []
+    for bloque in contenido_final:
+        if isinstance(bloque, str) and bloque.lstrip().startswith("## Firmas") and resultado:
+            while resultado:
+                lineas_previas = resultado[-1].split('\n')
+                hubo_cambios = False
+
+                while lineas_previas:
+                    while lineas_previas and not lineas_previas[-1].strip():
+                        lineas_previas.pop()
+                        hubo_cambios = True
+                    if lineas_previas and lineas_previas[-1].strip().lower() in roles:
+                        lineas_previas.pop()
+                        hubo_cambios = True
+                        continue
+                    break
+
+                bloque_limpio = "\n".join(lineas_previas).rstrip()
+                if not bloque_limpio:
+                    resultado.pop()
+                    continue
+
+                resultado[-1] = bloque_limpio
+                if not hubo_cambios:
+                    break
+                break
+        resultado.append(bloque)
+
+    return resultado
+
 def aplanar_y_limpiar_avanzado(ruta_entrada):
     """
     Limpia el PDF de estructuras fantasmas y normaliza el texto.
@@ -114,7 +247,7 @@ def extraer_a_markdown_directo(buffer_pdf, nombre_original):
     
     # Patrones para entidades específicas
     patron_emisor = re.compile(r'\b(H\.\s*CONSEJO\s+SUPERIOR|CONSEJO\s+DIRECTIVO|RECTORADO|DEPARTAMENTO\s+DE\s+[A-Z\sÁÉÍÓÚ]+)\b', re.IGNORECASE)
-    patron_firmante = re.compile(r'(?:(?:Prof\.|Lic\.|Dr\.|Ing\.|Bioq\.|Esp\.)\s+)+((?:[A-Z][a-záéíóúüñ]+\s+)*[A-ZÁÉÍÓÚÑ]+(?:\s+[A-ZÁÉÍÓÚÑ]+)*)(?:\s+(.*))?') 
+    patron_firmante = re.compile(r'(?:(?:Prof\.|Lic\.|Dr\.|Ing\.|Bioq\.|Esp\.)\s+)+((?:[A-Z][a-záéíóúüñ]+\s+)*[A-ZÁÉÍÓÚÑ]{2,}(?:\s+[A-ZÁÉÍÓÚÑ]{2,})*)(?:[\s\.\-:]+(.*))?')
        
     patron_firma_sudocu = re.compile(r'\b(Cargado por|Autorizado por|Firmado por)\s*:\s*([A-ZÁÉÍÓÚÑa-záéíóúüñ\s]+)', re.IGNORECASE)
     
@@ -376,9 +509,15 @@ def extraer_a_markdown_directo(buffer_pdf, nombre_original):
                     # 1. Firmas Tradicionales
                     es_firma_tradicional = False
                     for match in patron_firmante.finditer(texto_unido_plano):
+                        if not es_texto_firma_tradicional_valido(texto_unido_plano, match):
+                            continue
                         firmante = match.group(1).strip()
+                        rol_en_linea = limpiar_rol_firmante(match.group(2)) if match.group(2) else ""
                         if not any(f.get("name") == firmante for f in metadata_json["detected_entities"]["signers_candidates"]):
-                            metadata_json["detected_entities"]["signers_candidates"].append({"name": firmante, "role": "unknown"})
+                            metadata_json["detected_entities"]["signers_candidates"].append({
+                                "name": firmante,
+                                "role": rol_en_linea if es_rol_firmante_valido(rol_en_linea) else "unknown"
+                            })
                         es_bloque_firma = True
                         es_firma_tradicional = True
 
@@ -616,7 +755,7 @@ def extraer_a_markdown_directo(buffer_pdf, nombre_original):
         # --- VOLCADO DE FIRMAS AL FINAL DE LA PÁGINA ---
         if firmas_pagina:
             info_pagina["has_signature_block"] = True
-            bloque_firmas = "\n\n## Firmas\n" + "\n".join([f"- {f}" for f in firmas_pagina])
+            bloque_firmas = "## Firmas\n" + "\n".join([f"- {f}" for f in firmas_pagina])
             contenido_final.append(bloque_firmas)
 
         info_pagina["text"] = "\n".join(textos_bloques_pagina)
@@ -633,9 +772,11 @@ def extraer_a_markdown_directo(buffer_pdf, nombre_original):
             for idx, linea in enumerate(lineas):
                 match = patron_firmante.search(linea)
                 if match:
+                    if not es_texto_firma_tradicional_valido(linea, match):
+                        continue
                     nombre = match.group(1).strip()
                     # Intentamos usar el rol si cayó en la misma línea
-                    rol = match.group(2).strip() if match.group(2) else ""
+                    rol = limpiar_rol_firmante(match.group(2)) if match.group(2) else ""
                     
                     # Si no lo tenemos, buscamos en la línea de abajo y luego en la de arriba
                     if not rol:
@@ -648,16 +789,27 @@ def extraer_a_markdown_directo(buffer_pdf, nombre_original):
                             if patron_firmante.search(posible_rol): continue 
                             if re.search(r'^(ART[IÍ]CULO|RESOLUCI[OÓ]N|DISPOSICI[OÓ]N|LUJ[AÁ]N|///|#|EXP-|VISTO|CONSIDERANDO)', posible_rol, re.IGNORECASE): continue
                             if len(posible_rol) < 4: continue
+                            if not es_rol_firmante_valido(posible_rol): continue
                             
-                            rol = posible_rol.title()
+                            rol = limpiar_rol_firmante(posible_rol.title())
                             break
                     
                     # Guardamos el rol en el JSON
-                    if rol:
+                    if es_rol_firmante_valido(rol):
                         for candidato in metadata_json["detected_entities"]["signers_candidates"]:
                             if candidato["name"] == nombre and candidato["role"] == "unknown":
                                 candidato["role"] = rol
     # -----------------------------------------------------------------------------
+
+    firmantes_detectados = metadata_json["detected_entities"]["signers_candidates"]
+    contenido_final = quitar_roles_sueltos_antes_de_firmas(contenido_final, firmantes_detectados)
+    contenido_final = [
+        formatear_bloque_firmas_md(bloque, firmantes_detectados)
+        if isinstance(bloque, str) and bloque.lstrip().startswith("## Firmas")
+        else bloque
+        for bloque in contenido_final
+    ]
+    contenido_final = [bloque for bloque in contenido_final if not (isinstance(bloque, str) and not bloque.strip())]
     
     
     if titulo_encontrado: 
