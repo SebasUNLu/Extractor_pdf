@@ -274,7 +274,11 @@ def extraer_a_markdown_directo(buffer_pdf, nombre_original):
     patron_fecha_num = re.compile(r'\b(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{2,4})\b')
     patron_fecha_texto = re.compile(r'\b(\d{1,2})\s*(?:de\s*)?([a-zA-Z]{3,10})\s*(?:de\s*)?(\d{2,4})\b', re.IGNORECASE)
 
-    patron_codigo_auxiliar = re.compile(r'\b(EXP-LUJ|ACTDB-LUJ|EXPP)\s*[:\-]?\s*\d+[\/\-]\d{2,4}\b', re.IGNORECASE)
+    # OPTIMIZACIÓN: Captura EXP-LUJ, ACTDB-LUJ, EXPP, DISPCD-TLUJ, DISPCD-T, RESHCS, etc.
+    patron_codigo_auxiliar = re.compile(
+        r'\b(EXP-LUJ|ACTDB-LUJ|EXPP|DISPCD-TLUJ|DISPCD-T|RESHCS-LUJ|RESPHCS|SEACAD|[A-Z]{3,}(?:-[A-Z0-9]+)*)\s*(?:[:\-–—]|N[°º.\s]+)?\s*\d+[\/\-]\d{2,4}\b', 
+        re.IGNORECASE
+    )
     
     patron_ciudad_emision = re.compile(r'\b(Luj[aá]n|Campana|Chivilcoy|San\s+Miguel|CABA|Buenos\s+Aires|Capital\s+Federal)\b\s*,?\s*(?:\d{1,2}\s*(?:de\s*)?(?:[a-zA-Z]{3,10})\s*(?:de\s*)?\d{2,4}|\d{1,2}[\/\-]\d{1,2}[\/\-]\d{2,4})', re.IGNORECASE)
     
@@ -342,12 +346,10 @@ def extraer_a_markdown_directo(buffer_pdf, nombre_original):
 
         bloques_crudos = pagina.get_text("dict")["blocks"]
         
-        # 1. Pre-ordenar por Y para asegurar un orden de lectura inicial
         bloques_ordenados_y = sorted(bloques_crudos, key=lambda b: (b["bbox"][1], b["bbox"][0]))
         
         grupos = []
         for b in bloques_ordenados_y:
-            # Si no es texto, lo dejamos en su propio grupo
             if b.get("type", 1) != 0: 
                 grupos.append([b])
                 continue
@@ -357,11 +359,9 @@ def extraer_a_markdown_directo(buffer_pdf, nombre_original):
                 if g[-1].get("type", 1) != 0: continue
                 ultimo_b = g[-1]
                 
-                # Distancia vertical y solapamiento horizontal
                 dist_y = b["bbox"][1] - ultimo_b["bbox"][3]
                 x_overlap = max(0, min(b["bbox"][2], ultimo_b["bbox"][2]) - max(b["bbox"][0], ultimo_b["bbox"][0]))
                 
-                # Unimos a la misma columna si cumplen las condiciones
                 if -15 <= dist_y <= 60 and x_overlap > 10:
                     g.append(b)
                     añadido = True
@@ -370,10 +370,7 @@ def extraer_a_markdown_directo(buffer_pdf, nombre_original):
             if not añadido:
                 grupos.append([b])
 
-        # 2. Ordenar los grupos resultantes: primero por franja vertical y luego de izquierda a derecha
         grupos.sort(key=lambda g: (g[0]["bbox"][1] // 20, g[0]["bbox"][0]))
-
-        # 3. Aplanar la lista
         bloques = [b for g in grupos for b in g]
 
         indices_saltados = set()
@@ -538,7 +535,6 @@ def extraer_a_markdown_directo(buffer_pdf, nombre_original):
                         if ciudad_detectada not in metadata_json["detected_entities"]["city_candidates"]:
                             metadata_json["detected_entities"]["city_candidates"].append(ciudad_detectada)
 
-                    # --- EXTRACCIÓN DE ENTIDADES FALTANTES ---
                     for match in patron_emisor.finditer(texto_unido_plano):
                         emisor = match.group(1).strip().title()
                         if emisor not in metadata_json["detected_entities"]["issuing_body_candidates"]:
@@ -546,7 +542,6 @@ def extraer_a_markdown_directo(buffer_pdf, nombre_original):
                         if "Departamento" in emisor and emisor not in metadata_json["detected_entities"]["academic_unit_candidates"]:
                             metadata_json["detected_entities"]["academic_unit_candidates"].append(emisor)
 
-                    # 1. Firmas Tradicionales
                     es_firma_tradicional = False
                     matches_firmantes = list(patron_firmante.finditer(texto_unido_plano))
                     matches_firmantes.extend(buscar_firmantes_sin_titulo(texto_unido_plano, patron_firmante_sin_titulo))
@@ -567,21 +562,16 @@ def extraer_a_markdown_directo(buffer_pdf, nombre_original):
                         if texto_firma_limpio not in firmas_pagina:
                             firmas_pagina.append(texto_firma_limpio)
                             
-                    # 2. Firmas Digitales (SUDOCU)
                     for match in patron_firma_sudocu.finditer(texto_unido_plano):
                         nombre = match.group(2).strip()
-                        
-                        # Guardamos con role "unknown" como se solicitó
                         if not any(f.get("name") == nombre for f in metadata_json["detected_entities"]["signers_candidates"]):
                             metadata_json["detected_entities"]["signers_candidates"].append({"name": nombre, "role": "unknown"})
                             
-                        # Rescatamos SOLAMENTE el nombre para el Markdown
                         if nombre not in firmas_pagina:
                             firmas_pagina.append(nombre)
                             
                         es_bloque_firma = True
                         
-                    # 3. Silenciador de basura técnica de SUDOCU 
                     if metadata_json["global_hints"].get("has_signature_page"):
                         if re.search(r'\b(Sistema:\s*sudocu|Fecha:\s*\d{2}/\d{2}/\d{4})\b', texto_unido_plano, re.IGNORECASE):
                             es_bloque_firma = True 
@@ -619,7 +609,6 @@ def extraer_a_markdown_directo(buffer_pdf, nombre_original):
                             
                             if not any(c.get("code") == codigo_curso for c in metadata_json["detected_entities"]["course_candidates"]):
                                 metadata_json["detected_entities"]["course_candidates"].append(curso_obj)
-                    # ----------------------------------------
 
                     if patron_visto.search(texto_unido_plano):
                         info_pagina["markers"].add("VISTO")
@@ -634,6 +623,7 @@ def extraer_a_markdown_directo(buffer_pdf, nombre_original):
                         info_pagina["has_annex_start"] = True
                         metadata_json["global_hints"]["has_annexes"] = True
                         
+                    # PROCESAMIENTO REESCRITO: Almacena el código completo encontrado (ej: DISPCD-TLUJ: 0000352-23)
                     matches_aux = patron_codigo_auxiliar.finditer(texto_unido_plano)
                     for m in matches_aux:
                         cod = m.group(0).strip()
@@ -647,7 +637,6 @@ def extraer_a_markdown_directo(buffer_pdf, nombre_original):
                         titulo_encontrado = f"# {match.group(1).capitalize()} {match.group(2)} - {int(match.group(3))}/{match.group(4)}"
                         continue
 
-                # --- LÓGICA DE UNIÓN DE ANEXOS ---
                 if es_anexo:
                     titulo_anexo_completo = [texto_unido_plano]
                     cursor_idx = idx + 1
@@ -706,7 +695,6 @@ def extraer_a_markdown_directo(buffer_pdf, nombre_original):
                     contenido_final.append(texto_unido)
                     primer_bloque_pagina = False
                     continue
-                # ----------------------------------------
                 
                 if not es_anexo:
                     tiene_encabezado_conocido = bool(
@@ -793,7 +781,6 @@ def extraer_a_markdown_directo(buffer_pdf, nombre_original):
                     contenido_final.append(texto_unido)
                 primer_bloque_pagina = False
 
-        # --- VOLCADO DE FIRMAS AL FINAL DE LA PÁGINA ---
         if firmas_pagina:
             info_pagina["has_signature_block"] = True
             bloque_firmas = "## Firmas\n" + "\n".join([f"- {f}" for f in firmas_pagina])
@@ -805,7 +792,6 @@ def extraer_a_markdown_directo(buffer_pdf, nombre_original):
 
     doc.close()
     
-    # --- LÓGICA POST-PROCESAMIENTO: ASIGNACIÓN DE ROLES (VERSIÓN COLUMNAS) ---
     for pagina_info in metadata_json["pages"]:
         if pagina_info.get("has_signature_block"):
             lineas = [l.strip() for l in pagina_info["text"].split('\n') if l.strip()]
@@ -818,17 +804,14 @@ def extraer_a_markdown_directo(buffer_pdf, nombre_original):
                 if match:
                     if not es_texto_firma_tradicional_valido(linea, match):
                         continue
-                    # Intentamos usar el rol si cayó en la misma línea
                     nombre, rol = extraer_nombre_y_rol_firmante(match)
                     
-                    # Si no lo tenemos, buscamos en la línea de abajo y luego en la de arriba
                     if not rol:
                         candidatos_rol = []
                         if idx + 1 < len(lineas): candidatos_rol.append(lineas[idx + 1])
                         if idx - 1 >= 0: candidatos_rol.append(lineas[idx - 1])
                         
                         for posible_rol in candidatos_rol:
-                            # Filtros para no agarrar texto basura u otro nombre
                             if patron_firmante.search(posible_rol) or buscar_firmantes_sin_titulo(posible_rol, patron_firmante_sin_titulo): continue
                             if re.search(r'^(ART[IÍ]CULO|RESOLUCI[OÓ]N|DISPOSICI[OÓ]N|LUJ[AÁ]N|///|#|EXP-|VISTO|CONSIDERANDO)', posible_rol, re.IGNORECASE): continue
                             if len(posible_rol) < 4: continue
@@ -837,12 +820,10 @@ def extraer_a_markdown_directo(buffer_pdf, nombre_original):
                             rol = limpiar_rol_firmante(posible_rol.title())
                             break
                     
-                    # Guardamos el rol en el JSON
                     if es_rol_firmante_valido(rol):
                         for candidato in metadata_json["detected_entities"]["signers_candidates"]:
                             if candidato["name"] == nombre and candidato["role"] == "unknown":
                                 candidato["role"] = rol
-    # -----------------------------------------------------------------------------
 
     firmantes_detectados = metadata_json["detected_entities"]["signers_candidates"]
     contenido_final = quitar_roles_sueltos_antes_de_firmas(contenido_final, firmantes_detectados)
@@ -853,7 +834,6 @@ def extraer_a_markdown_directo(buffer_pdf, nombre_original):
         for bloque in contenido_final
     ]
     contenido_final = [bloque for bloque in contenido_final if not (isinstance(bloque, str) and not bloque.strip())]
-    
     
     if titulo_encontrado: 
         contenido_final.insert(0, titulo_encontrado)

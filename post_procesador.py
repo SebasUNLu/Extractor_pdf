@@ -149,6 +149,55 @@ def generar_documento_yaml_final(ruta_json, ruta_md):
 
     datos_completos = procesar_metadatos(json_data, contenido_md)
 
+    # =========================================================================
+    # NUEVA LÓGICA DE VALIDACIÓN Y DETECCIÓN DE ERRORES
+    # =========================================================================
+    campos_erroneos = []
+
+    # 1. Campos simples que no deben ser vacíos ni "unknown"
+    campos_basicos = [
+        "document_id", "source_pdf", "source_system", "document_type", 
+        "issuing_body", "document_code", "document_number", 
+        "date_issued", "year", "city", "signature_mode"
+    ]
+    
+    for campo in campos_basicos:
+        valor = datos_completos.get(campo)
+        if valor is None or str(valor).strip() == "" or str(valor).lower() == "unknown":
+            campos_erroneos.append(campo)
+
+    # 2. Validación específica de 'signers'
+    # Debe haber mínimo 1, y ningún name o role debe ser "unknown" o vacío
+    signers = datos_completos.get("signers", [])
+    if not signers or not isinstance(signers, list):
+        campos_erroneos.append("signers")
+    else:
+        for s in signers:
+            if isinstance(s, dict):
+                name = str(s.get("name", "")).lower()
+                role = str(s.get("role", "")).lower()
+                if name in ["unknown", ""] or role in ["unknown", ""]:
+                    campos_erroneos.append("signers")
+                    break
+
+    # 3. Validación específica de 'auxiliary_codes'
+    # Debe tener algo (no estar vacío ni poseer elementos "unknown")
+    aux_codes = datos_completos.get("auxiliary_codes", [])
+    if not aux_codes or not isinstance(aux_codes, list) or len(aux_codes) == 0:
+        campos_erroneos.append("auxiliary_codes")
+    else:
+        if any(str(c).lower() in ["unknown", ""] for c in aux_codes):
+            campos_erroneos.append("auxiliary_codes")
+
+    # Si se detectaron fallos, se registran en docus_error.txt
+    if campos_erroneos:
+        nombre_documento = datos_completos.get("source_pdf", os.path.basename(ruta_md))
+        # Modo 'a' abre el archivo para añadir líneas al final sin pisar lo anterior
+        with open("docus_error.txt", "a", encoding="utf-8") as f_err:
+            f_err.write(f"Documento: {nombre_documento} | Campos faltantes/erróneos: {', '.join(campos_erroneos)}\n")
+        print(f"Aviso: El documento se marcó con errores en 'docus_error.txt' debido a: {', '.join(campos_erroneos)}")
+    # =========================================================================
+
     nombre_base = os.path.splitext(os.path.basename(ruta_md))[0]
     ruta_salida = os.path.join(os.path.dirname(ruta_md), f"{nombre_base}_canonico.yaml")
 
