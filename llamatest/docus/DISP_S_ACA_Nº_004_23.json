@@ -1,0 +1,230 @@
+[
+    {
+        "pages": [
+            {
+                "page": 1,
+                "text": "    Secretaría Académica\n                                        EXP-LUJ: 0000580/2022\n\n                                        LUJÁN, 14 FEB 2023\n\n           VISTO: La Disposición DISPSEACAD-LUJ: 0001095-22 por la\n    cual se otorga una Pasantía Interna Autofinanciada (PIAF), y\n\n           CONSIDERANDO:\n           Que          la  Secretaría  Académica  advirtió  un error en     el\n    Artículo 1º de la disposición citada.\n           Que,         por  lo  expuesto,  corresponde      proceder  a     la\n    subsanación de dicho error material.\n           Que la presente se dicta en el marco de lo establecido\n    por el Artículo 101 del Anexo al Decreto Nº 894/17 “Reglamento de\n    Procedimientos Administrativos – Decreto Nº 1759/72 – T.O. 2017”.\n\n           Por ello,\n\n                                        EL SECRETARIO ACADÉMICO DE LA\n                                        UNIVERSIDAD NACIONAL DE LUJÁN\n                                               <u>D I S P O N E :</u>\n\n    ARTÍCULO 1º.-       Sustituir  en   el  Artículo  1º  de  la  Disposición\n    DISPSEACAD-LUJ: 0001095-22, donde dice: “Período de la Pasantía:\n    desde  18/10/2022       al  17/12/2022  y  desde  01/02/2023  hasta  el\n    16/06/2023” debe decir: “Período de la Pasantía: desde 18/10/2022\n    al 17/12/2022 y desde 01/02/2023 hasta el 16/03/2023”.-\n\n    ARTÍCULO 2º.-       Regístrese, comuníquese y archívese.-\n\n    DISPOSICIÓN DISPSEACAD-LUJ:0000004-23\n\nProf. Bioq. Jorge Domingo MUFATO\n      Secretario Académico\n\nEl texto de los documentos publicados en el sitio Web de la Universidad Nacional de Luján\nno tendrá validez para su presentación en terceras instituciones y/o entidades, salvo que\n     contaren con autenticación expedida por la Dir. de Gestión de Doc. y Actos Adm.",
+                "md": "# DISPOSICIÓN DISPSEACAD-LUJ:0000004-23\n\n## VISTO\nLa Disposición DISPSEACAD-LUJ: 0001095-22 por la cual se otorga una Pasantía Interna Autofinanciada (PIAF), y\n\n## CONSIDERANDO\nQue la Secretaría Académica advirtió un error en el Artículo 1º de la disposición citada.\nQue, por lo expuesto, corresponde proceder a la subsanación de dicho error material.\nQue la presente se dicta en el marco de lo establecido por el Artículo 101 del Anexo al Decreto Nº 894/17 “Reglamento de Procedimientos Administrativos – Decreto Nº 1759/72 – T.O. 2017”.\n\nPor ello,\n\n## EL SECRETARIO ACADÉMICO DE LA UNIVERSIDAD NACIONAL DE LUJÁN DISPONE:\n\n### ARTÍCULO 1º\nSustituir en el Artículo 1º de la Disposición DISPSEACAD-LUJ: 0001095-22, donde dice: “Período de la Pasantía: desde 18/10/2022 al 17/12/2022 y desde 01/02/2023 hasta el 16/06/2023” debe decir: “Período de la Pasantía: desde 18/10/2022 al 17/12/2022 y desde 01/02/2023 hasta el 16/03/2023”.\n\n### ARTÍCULO 2º\nRegístrese, comuníquese y archívese.\n\n> El texto de los documentos publicados en el sitio Web de la Universidad Nacional de Luján no tendrá validez para su presentación en terceras instituciones y/o entidades, salvo que contaren con autenticación expedida por la Dir. de Gestión de Doc. y Actos Adm.\n\nProf. Bioq. Jorge Domingo MUFATO\nSecretario Académico",
+                "images": [
+                    {
+                        "name": "img_p0_1.jpg",
+                        "height": 67.65,
+                        "width": 67.65,
+                        "x": 118.65,
+                        "y": 36.851,
+                        "original_width": 128,
+                        "original_height": 128,
+                        "rotation": 0
+                    },
+                    {
+                        "name": "page_1.jpg",
+                        "height": 841.89,
+                        "width": 595.304,
+                        "x": 0,
+                        "y": 0,
+                        "original_width": 1131,
+                        "original_height": 1600,
+                        "rotation": 0,
+                        "type": "full_page_screenshot"
+                    }
+                ],
+                "charts": [],
+                "items": [
+                    {
+                        "type": "heading",
+                        "md": "# DISPOSICIÓN DISPSEACAD-LUJ:0000004-23",
+                        "value": "DISPOSICIÓN DISPSEACAD-LUJ:0000004-23",
+                        "lvl": 1,
+                        "bBox": {
+                            "x": 113.5,
+                            "y": 543.95,
+                            "w": 244.2,
+                            "h": 12.45,
+                            "confidence": 0.7,
+                            "label": "heading"
+                        }
+                    },
+                    {
+                        "type": "heading",
+                        "md": "## VISTO",
+                        "value": "VISTO",
+                        "lvl": 2
+                    },
+                    {
+                        "type": "text",
+                        "md": "La Disposición DISPSEACAD-LUJ: 0001095-22 por la cual se otorga una Pasantía Interna Autofinanciada (PIAF), y",
+                        "value": "La Disposición DISPSEACAD-LUJ: 0001095-22 por la cual se otorga una Pasantía Interna Autofinanciada (PIAF), y",
+                        "bBox": {
+                            "x": 113.5,
+                            "y": 207.75,
+                            "w": 436.52,
+                            "h": 236.55,
+                            "confidence": 0.7,
+                            "label": "text"
+                        }
+                    },
+                    {
+                        "type": "heading",
+                        "md": "## CONSIDERANDO",
+                        "value": "CONSIDERANDO",
+                        "lvl": 2,
+                        "bBox": {
+                            "x": 428.37,
+                            "y": 270.05,
+                            "w": 97.64,
+                            "h": 174.25,
+                            "confidence": 0.7,
+                            "label": "heading"
+                        }
+                    },
+                    {
+                        "type": "text",
+                        "md": "Que la Secretaría Académica advirtió un error en el Artículo 1º de la disposición citada.\nQue, por lo expuesto, corresponde proceder a la subsanación de dicho error material.\nQue la presente se dicta en el marco de lo establecido por el Artículo 101 del Anexo al Decreto Nº 894/17 “Reglamento de Procedimientos Administrativos – Decreto Nº 1759/72 – T.O. 2017”.",
+                        "value": "Que la Secretaría Académica advirtió un error en el Artículo 1º de la disposición citada.\nQue, por lo expuesto, corresponde proceder a la subsanación de dicho error material.\nQue la presente se dicta en el marco de lo establecido por el Artículo 101 del Anexo al Decreto Nº 894/17 “Reglamento de Procedimientos Administrativos – Decreto Nº 1759/72 – T.O. 2017”.",
+                        "bBox": {
+                            "x": 105.27,
+                            "y": 109.58,
+                            "w": 444.22,
+                            "h": 359.62,
+                            "confidence": 0.7,
+                            "label": "text"
+                        }
+                    },
+                    {
+                        "type": "text",
+                        "md": "Por ello,",
+                        "value": "Por ello,",
+                        "bBox": {
+                            "x": 184.4,
+                            "y": 344.75,
+                            "w": 59.4,
+                            "h": 12.45,
+                            "confidence": 0.7,
+                            "label": "text"
+                        }
+                    },
+                    {
+                        "type": "heading",
+                        "md": "## EL SECRETARIO ACADÉMICO DE LA UNIVERSIDAD NACIONAL DE LUJÁN DISPONE:",
+                        "value": "EL SECRETARIO ACADÉMICO DE LA UNIVERSIDAD NACIONAL DE LUJÁN DISPONE:",
+                        "lvl": 2,
+                        "bBox": {
+                            "x": 236.1,
+                            "y": 369.65,
+                            "w": 191.4,
+                            "h": 24.85,
+                            "confidence": 0.7,
+                            "label": "heading"
+                        }
+                    },
+                    {
+                        "type": "heading",
+                        "md": "### ARTÍCULO 1º",
+                        "value": "ARTÍCULO 1º",
+                        "lvl": 3,
+                        "bBox": {
+                            "x": 339.72,
+                            "y": 431.85,
+                            "w": 79.66,
+                            "h": 12.45,
+                            "confidence": 0.7,
+                            "label": "heading"
+                        }
+                    },
+                    {
+                        "type": "text",
+                        "md": "Sustituir en el Artículo 1º de la Disposición DISPSEACAD-LUJ: 0001095-22, donde dice: “Período de la Pasantía: desde 18/10/2022 al 17/12/2022 y desde 01/02/2023 hasta el 16/06/2023” debe decir: “Período de la Pasantía: desde 18/10/2022 al 17/12/2022 y desde 01/02/2023 hasta el 16/03/2023”.",
+                        "value": "Sustituir en el Artículo 1º de la Disposición DISPSEACAD-LUJ: 0001095-22, donde dice: “Período de la Pasantía: desde 18/10/2022 al 17/12/2022 y desde 01/02/2023 hasta el 16/06/2023” debe decir: “Período de la Pasantía: desde 18/10/2022 al 17/12/2022 y desde 01/02/2023 hasta el 16/03/2023”.",
+                        "bBox": {
+                            "x": 113.5,
+                            "y": 245.15,
+                            "w": 436.52,
+                            "h": 236.55,
+                            "confidence": 0.7,
+                            "label": "text"
+                        }
+                    },
+                    {
+                        "type": "heading",
+                        "md": "### ARTÍCULO 2º",
+                        "value": "ARTÍCULO 2º",
+                        "lvl": 3,
+                        "bBox": {
+                            "x": 339.72,
+                            "y": 431.85,
+                            "w": 55.09,
+                            "h": 12.45,
+                            "confidence": 0.7,
+                            "label": "heading"
+                        }
+                    },
+                    {
+                        "type": "text",
+                        "md": "Regístrese, comuníquese y archívese.",
+                        "value": "Regístrese, comuníquese y archívese.",
+                        "bBox": {
+                            "x": 184.4,
+                            "y": 245.15,
+                            "w": 341.62,
+                            "h": 224.05,
+                            "confidence": 0.7,
+                            "label": "text"
+                        }
+                    },
+                    {
+                        "type": "text",
+                        "md": "> El texto de los documentos publicados en el sitio Web de la Universidad Nacional de Luján no tendrá validez para su presentación en terceras instituciones y/o entidades, salvo que contaren con autenticación expedida por la Dir. de Gestión de Doc. y Actos Adm.",
+                        "value": "> El texto de los documentos publicados en el sitio Web de la Universidad Nacional de Luján no tendrá validez para su presentación en terceras instituciones y/o entidades, salvo que contaren con autenticación expedida por la Dir. de Gestión de Doc. y Actos Adm.",
+                        "bBox": {
+                            "x": 118.2,
+                            "y": 770.45,
+                            "w": 427.2,
+                            "h": 27.16,
+                            "confidence": 0.7,
+                            "label": "text"
+                        }
+                    },
+                    {
+                        "type": "text",
+                        "md": "Prof. Bioq. Jorge Domingo MUFATO\nSecretario Académico",
+                        "value": "Prof. Bioq. Jorge Domingo MUFATO\nSecretario Académico",
+                        "bBox": {
+                            "x": 352,
+                            "y": 593.78,
+                            "w": 192,
+                            "h": 22.62,
+                            "confidence": 0.7,
+                            "label": "text"
+                        }
+                    }
+                ],
+                "status": "OK",
+                "originalOrientationAngle": 0,
+                "links": [],
+                "width": 595.304,
+                "height": 841.89,
+                "triggeredAutoMode": false,
+                "parsingMode": "accurate",
+                "structuredData": null,
+                "noStructuredContent": false,
+                "noTextContent": false,
+                "pageHeaderMarkdown": "",
+                "pageFooterMarkdown": "",
+                "printedPageNumber": "",
+                "slideSpeakerNotes": null,
+                "slideSectionName": null,
+                "confidence": 0.943,
+                "costOptimized": false
+            }
+        ],
+        "job_metadata": {
+            "credits_used": 0,
+            "job_credits_usage": 0,
+            "job_pages": 1,
+            "job_auto_mode_triggered_pages": 0,
+            "job_is_cache_hit": false
+        },
+        "job_id": "58bc555a-0073-475b-a766-91cf52a7865e",
+        "file_path": "docus\\DISP_S_ACA_Nº_004_23.pdf"
+    }
+]
