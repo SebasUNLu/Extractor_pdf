@@ -4,6 +4,31 @@ import sys
 import re
 import yaml # Requiere instalar la librería: pip install pyyaml
 
+def extraer_codigo_desde_encabezado_md(contenido_md):
+    """
+    Prioriza encabezados formales del portal, por ejemplo:
+    DISPOSICION ... DISPCD-T : 441 / 2024
+    """
+    lineas = [l.strip() for l in contenido_md.split('\n') if l.strip()]
+    patron_encabezado_portal = re.compile(
+        r'^\s*(?:#\s*)?(?:DISPOSICI[ÓO]N|RESOLUCI[ÓO]N)\b'
+        r'.*?\b([A-Z]{2,}(?:-[A-Z0-9]+)*)\s*:\s*(\d+)\s*(?:[\/\-])\s*(\d{2,4})\b',
+        re.IGNORECASE
+    )
+
+    for linea in lineas[:12]:
+        if re.search(r'\b(VISTO|CONSIDERANDO|ART[IÍ]CULO)\b', linea, re.IGNORECASE):
+            break
+
+        match = patron_encabezado_portal.search(linea)
+        if match:
+            codigo = match.group(1).strip()
+            numero = match.group(2).strip()
+            anio = match.group(3).strip()
+            return codigo, f"{numero}/{anio}"
+
+    return None, None
+
 def procesar_metadatos(json_data, contenido_md):
     """
     Toma los 'hints' del JSON y el texto del Markdown para tomar
@@ -44,13 +69,16 @@ def procesar_metadatos(json_data, contenido_md):
 
     # 2. Extraer Código y Número del documento principal
     candidates = json_data.get("detected_entities", {}).get("document_code_candidates", [])
-    document_code = "unknown"
-    document_number = "unknown"
-    if candidates:
+    document_code, document_number = extraer_codigo_desde_encabezado_md(contenido_md)
+
+    if (not document_code or not document_number) and candidates:
         partes = candidates[0].split(":")
         if len(partes) >= 2:
             document_code = partes[0].split(" ")[-1].strip()
             document_number = partes[1].strip()
+
+    document_code = document_code or "unknown"
+    document_number = document_number or "unknown"
 
     # 3. Normalizar Fecha y Año
     date_cands = json_data.get("detected_entities", {}).get("date_candidates", [])

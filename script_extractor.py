@@ -269,7 +269,12 @@ def extraer_a_markdown_directo(buffer_pdf, nombre_original):
     patron_folio = re.compile(r'^\s*-\s*\d+\s*-\s*$')
     patron_paginacion = re.compile(r'^\s*\d+\s*/\s*\d+\s*$')
     patron_anexo_inicio = re.compile(r'^\s*(ANEXO|Anexo)\b', re.IGNORECASE)
-    patron_titulo_norma = re.compile(r'(DISPOSICIÓN|RESOLUCIÓN)\s+([A-Z\-]+):\s*(\d+)-(\d+)', re.IGNORECASE)
+    patron_titulo_norma = re.compile(
+        r'\b(DISPOSICI[ÓO]N|RESOLUCI[ÓO]N)\b'
+        r'(?:\s+(?:(?!\bVISTO\b|\bCONSIDERANDO\b|\bART[IÍ]CULO\b).){0,180}?)?'
+        r'\b([A-Z]{2,}(?:-[A-Z0-9]+)*)\s*:\s*0*(\d+)\s*(?:[\/\-])\s*(\d{2,4})\b',
+        re.IGNORECASE
+    )
     
     patron_fecha_num = re.compile(r'\b(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{2,4})\b')
     patron_fecha_texto = re.compile(r'\b(\d{1,2})\s*(?:de\s*)?([a-zA-Z]{3,10})\s*(?:de\s*)?(\d{2,4})\b', re.IGNORECASE)
