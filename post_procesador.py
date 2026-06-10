@@ -29,6 +29,38 @@ def extraer_codigo_desde_encabezado_md(contenido_md):
 
     return None, None
 
+def normalizar_ciudad(valor):
+    valor = re.sub(r'\s+', ' ', str(valor)).strip(" ,")
+    if not valor:
+        return "unknown"
+
+    partes = [p.strip().upper() for p in valor.split(",") if p.strip()]
+    partes_normalizadas = ["LUJÁN" if p == "LUJAN" else p for p in partes]
+    return ", ".join(partes_normalizadas) if partes_normalizadas else "unknown"
+
+def extraer_ciudad_desde_md(contenido_md):
+    patron_ciudad = re.compile(
+        r'^\s*(?:#\s*)?'
+        r'(Luj[aá]n|Campana|Chivilcoy|San\s+Miguel|CABA|Buenos\s+Aires|Capital\s+Federal)'
+        r'(?:\s*,\s*(Buenos\s+Aires))?'
+        r'\s*,?\s*'
+        r'(?:\d{1,2}\s*(?:de\s*)?(?:[a-zA-ZáéíóúÁÉÍÓÚ]{3,10})\s*(?:de\s*)?\d{2,4}'
+        r'|\d{1,2}[\/\-]\d{1,2}[\/\-]\d{2,4})?'
+        r'\s*(?:\.-)?\s*$',
+        re.IGNORECASE
+    )
+
+    for linea in contenido_md.splitlines()[:12]:
+        match = patron_ciudad.search(linea.strip())
+        if match:
+            ciudad = normalizar_ciudad(match.group(1))
+            provincia = normalizar_ciudad(match.group(2)) if match.group(2) else ""
+            if provincia == "BUENOS AIRES" and ciudad != "BUENOS AIRES":
+                return f"{ciudad}, BUENOS AIRES"
+            return ciudad
+
+    return "unknown"
+
 def procesar_metadatos(json_data, contenido_md):
     """
     Toma los 'hints' del JSON y el texto del Markdown para tomar
@@ -90,7 +122,7 @@ def procesar_metadatos(json_data, contenido_md):
 
     # 4. Normalizar Ciudad
     city_cands = json_data.get("detected_entities", {}).get("city_candidates", [])
-    city = city_cands[0].capitalize() if city_cands else "unknown"
+    city = normalizar_ciudad(city_cands[0]) if city_cands else extraer_ciudad_desde_md(contenido_md)
 
     # 5. Resolver Anexos
     has_annexes = json_data.get("global_hints", {}).get("has_annexes", False)

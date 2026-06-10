@@ -285,7 +285,15 @@ def extraer_a_markdown_directo(buffer_pdf, nombre_original):
         re.IGNORECASE
     )
     
-    patron_ciudad_emision = re.compile(r'\b(Luj[aá]n|Campana|Chivilcoy|San\s+Miguel|CABA|Buenos\s+Aires|Capital\s+Federal)\b\s*,?\s*(?:\d{1,2}\s*(?:de\s*)?(?:[a-zA-Z]{3,10})\s*(?:de\s*)?\d{2,4}|\d{1,2}[\/\-]\d{1,2}[\/\-]\d{2,4})', re.IGNORECASE)
+    patron_ciudad_emision = re.compile(
+        r'\b(Luj[aá]n|Campana|Chivilcoy|San\s+Miguel|CABA|Buenos\s+Aires|Capital\s+Federal)\b'
+        r'(?:\s*,\s*(Buenos\s+Aires))?'
+        r'\s*,?\s*'
+        r'(?=(?:\d{1,2}\s*(?:de\s*)?(?:[a-zA-ZáéíóúÁÉÍÓÚ]{3,10})\s*(?:de\s*)?\d{2,4}'
+        r'|\d{1,2}[\/\-]\d{1,2}[\/\-]\d{2,4}'
+        r'|\bVISTO\b|$))',
+        re.IGNORECASE
+    )
     
     patron_disclaimer_web = re.compile(r'(texto de los documentos publicados|validez para su presentación en terceras|de gestión de doc\. y actos adm)', re.IGNORECASE)
     
@@ -534,8 +542,11 @@ def extraer_a_markdown_directo(buffer_pdf, nombre_original):
                     
                     for match in patron_ciudad_emision.finditer(texto_unido_plano):
                         ciudad_detectada = match.group(1).upper()
+                        provincia_detectada = match.group(2).upper() if match.group(2) else ""
                         if ciudad_detectada in ["LUJAN", "LUJÁN"]:
                             ciudad_detectada = "LUJÁN"
+                        if provincia_detectada == "BUENOS AIRES" and ciudad_detectada != "BUENOS AIRES":
+                            ciudad_detectada = f"{ciudad_detectada}, BUENOS AIRES"
                             
                         if ciudad_detectada not in metadata_json["detected_entities"]["city_candidates"]:
                             metadata_json["detected_entities"]["city_candidates"].append(ciudad_detectada)
