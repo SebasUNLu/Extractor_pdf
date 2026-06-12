@@ -9,7 +9,71 @@ import json
 
 TITULOS_FIRMA = r'Prof\.|Lic\.|Dr\.|Dra\.|Ing\.|Bioq\.|Esp\.|Mg\.|Mgter\.|Mag\.|Abog\.'
 NOMBRE_FIRMANTE = r'((?:(?:[A-ZÁÉÍÓÚÑ][a-záéíóúüñ]+|[A-ZÁÉÍÓÚÑ]\.)\s+)*(?:[A-ZÁÉÍÓÚÑ]{2,}|[A-ZÁÉÍÓÚÑ][a-záéíóúüñ]{2,})(?:\s+(?:[A-ZÁÉÍÓÚÑ]{2,}|[A-ZÁÉÍÓÚÑ][a-záéíóúüñ]{2,}))*)'
-ROL_FIRMANTE_KEYWORDS = r'(?:presidente|rector(?:a)?|secretari[oa]|subsecretari[oa]|director(?:a)?|decano|coordinador(?:a)?|jefe|responsable|vicedirector(?:a)?)'
+ROL_FIRMANTE_KEYWORDS = r'(?:president[ea]|vicepresident[ea]|rector(?:a)?|secretari[oa]|subsecretari[oa]|director(?:a)?|decano|coordinador(?:a)?|jefe|responsable|vicedirector(?:a)?)'
+
+def reparar_mojibake(texto):
+    """
+    Recupera texto UTF-8 leido como Windows-1252, caso comun en PDFs historicos.
+    """
+    if not isinstance(texto, str) or not re.search(r'[ÃÂâ]', texto):
+        return texto
+
+    try:
+        return texto.encode("cp1252").decode("utf-8")
+    except UnicodeError:
+        return texto
+
+def normalizar_para_regex(texto):
+    texto = reparar_mojibake(texto)
+    reemplazos = {
+        "Á": "A", "É": "E", "Í": "I", "Ó": "O", "Ú": "U", "Ñ": "N",
+        "á": "a", "é": "e", "í": "i", "ó": "o", "ú": "u", "ñ": "n",
+        "°": " ", "º": " "
+    }
+    for origen, destino in reemplazos.items():
+        texto = texto.replace(origen, destino)
+    return texto
+
+def extraer_titulo_norma_legacy(texto):
+    """
+    Detecta documentos antiguos del tipo RESOLUCION C.S.N° 123/04.
+    Devuelve tipo, codigo, numero y anio.
+    """
+    texto_norm = normalizar_para_regex(texto).upper()
+    texto_norm = re.sub(r'\s+', ' ', texto_norm)
+    texto_norm = re.sub(r'\bN\s+', ' N ', texto_norm)
+
+    patron = re.compile(
+        r'\b(RESOLUCION|DISPOSICION)\s+'
+        r'([A-Z](?:\.[A-Z])+\.?)\s*N\s*0*(\d+)\s*/\s*(\d{2,4})\b'
+    )
+    matches = list(patron.finditer(texto_norm))
+    if not matches:
+        return None
+
+    match = matches[-1]
+    return match.group(1).title(), match.group(2).strip(), match.group(3), match.group(4)
+
+def es_contexto_cierre_norma(texto):
+    texto = reparar_mojibake(texto)
+    return bool(re.search(r'\b(registrese|regístrese|comuniquese|comuníquese|archivese|archívese|cumplido)\b', texto, re.IGNORECASE))
+
+def es_contexto_titulo_norma(texto):
+    texto = reparar_mojibake(texto).strip()
+    if not re.match(r'^(?:#\s*)?(resolucion|resolución|disposicion|disposición)\b', texto, re.IGNORECASE):
+        return False
+    return not re.search(r'\b(visto|considerando|articulo|artículo|registe|registrese|regístrese)\b', texto, re.IGNORECASE)
+
+def agregar_candidato_documento(metadata_json, candidato_codigo, es_principal=False):
+    candidatos = metadata_json["detected_entities"]["document_code_candidates"]
+    if candidato_codigo in candidatos:
+        if es_principal:
+            candidatos.insert(0, candidatos.pop(candidatos.index(candidato_codigo)))
+        return
+    if es_principal:
+        candidatos.insert(0, candidato_codigo)
+    else:
+        candidatos.append(candidato_codigo)
 
 def normalizar_fecha(dia, mes_str, anio):
     """
@@ -79,6 +143,14 @@ def extraer_nombre_y_rol_firmante(match):
     nombre = re.sub(r'\s+', ' ', match.group(1)).strip()
     rol_bruto = re.sub(r'\s+', ' ', match.group(2)).strip() if match.group(2) else ""
     rol = limpiar_rol_firmante(rol_bruto)
+
+    if not rol:
+        match_rol_en_nombre = re.search(rf'\b({ROL_FIRMANTE_KEYWORDS}\b.*)$', nombre, re.IGNORECASE)
+        if match_rol_en_nombre:
+            nombre_sin_rol = nombre[:match_rol_en_nombre.start()].strip()
+            if len(nombre_sin_rol.split()) >= 2:
+                nombre = nombre_sin_rol
+                rol = limpiar_rol_firmante(match_rol_en_nombre.group(1))
 
     partes_nombre = nombre.split()
     if rol and partes_nombre and re.fullmatch(ROL_FIRMANTE_KEYWORDS, partes_nombre[-1], re.IGNORECASE):
@@ -523,10 +595,15 @@ def extraer_a_markdown_directo(buffer_pdf, nombre_original):
                     textos_bloques_pagina.append(texto_unido_plano)
                     
                     match_norma = patron_titulo_norma.search(texto_unido_plano)
+                    norma_legacy = None if match_norma else extraer_titulo_norma_legacy(texto_unido_plano)
+                    es_codigo_principal = es_contexto_cierre_norma(texto_unido_plano) or es_contexto_titulo_norma(texto_unido_plano)
                     if match_norma:
                         candidato_codigo = f"{match_norma.group(1)} {match_norma.group(2)}: {match_norma.group(3)}/{match_norma.group(4)}"
-                        if candidato_codigo not in metadata_json["detected_entities"]["document_code_candidates"]:
-                            metadata_json["detected_entities"]["document_code_candidates"].append(candidato_codigo)
+                        agregar_candidato_documento(metadata_json, candidato_codigo, es_codigo_principal)
+                    elif norma_legacy and es_codigo_principal:
+                        tipo_norma, codigo_norma, numero_norma, anio_norma = norma_legacy
+                        candidato_codigo = f"{tipo_norma} {codigo_norma}: {numero_norma}/{anio_norma}"
+                        agregar_candidato_documento(metadata_json, candidato_codigo, True)
                     
                     for match in patron_fecha_num.finditer(texto_unido_plano):
                         d, m, a = match.groups()
@@ -649,8 +726,13 @@ def extraer_a_markdown_directo(buffer_pdf, nombre_original):
 
                 if not titulo_encontrado:
                     match = patron_titulo_norma.search(texto_unido_plano)
-                    if match:
+                    if match and (es_contexto_cierre_norma(texto_unido_plano) or es_contexto_titulo_norma(texto_unido_plano)):
                         titulo_encontrado = f"# {match.group(1).capitalize()} {match.group(2)} - {int(match.group(3))}/{match.group(4)}"
+                        continue
+                    norma_legacy = extraer_titulo_norma_legacy(texto_unido_plano)
+                    if norma_legacy and es_contexto_cierre_norma(texto_unido_plano):
+                        tipo_norma, codigo_norma, numero_norma, anio_norma = norma_legacy
+                        titulo_encontrado = f"# {tipo_norma} {codigo_norma} - {int(numero_norma)}/{anio_norma}"
                         continue
 
                 if es_anexo:
@@ -859,7 +941,7 @@ def extraer_a_markdown_directo(buffer_pdf, nombre_original):
             palabra_clave = m_hint.group(1).lower()
             tipo_doc = "res" if "res" in palabra_clave else "disp"
             resto_doc = m_hint.group(2).lower()
-            resto_doc = re.sub(r'[\s\/\-\:]+', '_', resto_doc).strip('_')
+            resto_doc = re.sub(r'[\s\/\-\:\.]+', '_', resto_doc).strip('_')
             
             metadata_json["document_id_hint"] = f"{tipo_doc}_{resto_doc}"
 
