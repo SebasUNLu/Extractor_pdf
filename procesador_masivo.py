@@ -4,7 +4,8 @@ import os
 import subprocess
 import logging
 import sys
-import random  # <-- Agregado para la selección aleatoria
+import random
+import concurrent.futures
 
 # Configuración del log de errores
 logging.basicConfig(
@@ -13,7 +14,44 @@ logging.basicConfig(
     format='%(asctime)s - Archivo: %(message)s'
 )
 
-def procesar_carpeta(ruta_destino, cantidad_aleatoria=None):  # <-- Agregado parámetro opcional
+def procesar_un_archivo(archivo, ruta_origen_abs, carpeta_resultados, script_extractor, script_post_procesador):
+    """Procesa un único PDF con la misma lógica del flujo actual."""
+    ruta_completa_pdf = os.path.join(ruta_origen_abs, archivo)
+
+    try:
+        subprocess.run(
+            ["python", script_extractor, ruta_completa_pdf],
+            cwd=carpeta_resultados,
+            check=True,
+            capture_output=True,
+            text=True
+        )
+
+        nombre_base = os.path.splitext(archivo)[0]
+        nombre_md = f"{nombre_base}.md"
+        nombre_json = f"{nombre_base}.json"
+
+        if os.path.exists(os.path.join(carpeta_resultados, nombre_md)) and os.path.exists(os.path.join(carpeta_resultados, nombre_json)):
+            subprocess.run(
+                ["python", script_post_procesador, nombre_json, nombre_md],
+                cwd=carpeta_resultados,
+                check=True,
+                capture_output=True,
+                text=True
+            )
+            return "EXITO", archivo, None
+        else:
+            return "ERROR", archivo, "El extractor no generó los archivos MD o JSON esperados."
+
+    except subprocess.CalledProcessError as e:
+        error_msg = f"{archivo} | Error del script: {e.stderr.strip()}"
+        return "ERROR", archivo, error_msg
+    except Exception as e:
+        error_msg = f"{archivo} | Error inesperado: {str(e)}"
+        return "ERROR", archivo, error_msg
+
+
+def procesar_carpeta(ruta_destino, cantidad_aleatoria=None):
     # Definir las rutas ABSOLUTAS de los scripts para no perderlos de vista
     directorio_actual = os.getcwd()
     script_extractor = os.path.abspath("script_extractor.py")
@@ -50,59 +88,50 @@ def procesar_carpeta(ruta_destino, cantidad_aleatoria=None):  # <-- Agregado par
     exitos = 0
     errores = 0
 
-    for archivo in archivos:
-        # Usamos la ruta absoluta al PDF para que el extractor lo encuentre sin problemas
-        ruta_completa_pdf = os.path.join(ruta_origen_abs, archivo)
-        print(f"Procesando: {archivo}...".ljust(60), end="\r")
-        
-        try:
-            # ==========================================
-            # FASE 1: EXTRACCIÓN (Genera MD y JSON nativamente en la carpeta final)
-            # ==========================================
-            # Al pasarle cwd=carpeta_resultados, el script se ejecuta "allí dentro" 
-            # y los archivos se guardan solos en el directorio correcto.
-            subprocess.run(
-                ["python", script_extractor, ruta_completa_pdf], 
-                cwd=carpeta_resultados, 
-                check=True, 
-                capture_output=True,
-                text=True
+    if len(archivos) > 1:
+        max_workers = max(1, min(len(archivos), (os.cpu_count() or 1) - 1))
+        print(f"--- Iniciando procesamiento multinúcleo con {max_workers} workers ---")
+
+        with concurrent.futures.ProcessPoolExecutor(max_workers=max_workers) as executor:
+            tareas = {
+                executor.submit(
+                    procesar_un_archivo,
+                    archivo,
+                    ruta_origen_abs,
+                    carpeta_resultados,
+                    script_extractor,
+                    script_post_procesador
+                ): archivo for archivo in archivos
+            }
+
+            for indice, futuro in enumerate(concurrent.futures.as_completed(tareas), start=1):
+                tipo_res, archivo_procesado, detalle = futuro.result()
+                porcentaje = (indice / len(archivos)) * 100
+
+                if tipo_res == "EXITO":
+                    exitos += 1
+                    print(f"[{indice}/{len(archivos)} - {porcentaje:.1f}%] OK: {archivo_procesado}")
+                else:
+                    errores += 1
+                    logging.error(detalle)
+                    print(f"\n[ERROR] Falló el procesamiento de: {archivo_procesado}. Revisa errores_extraccion.log")
+    else:
+        for archivo in archivos:
+            print(f"Procesando: {archivo}...".ljust(60), end="\r")
+            tipo_res, archivo_procesado, detalle = procesar_un_archivo(
+                archivo,
+                ruta_origen_abs,
+                carpeta_resultados,
+                script_extractor,
+                script_post_procesador
             )
-            
-            # Nombres esperados de los archivos generados
-            nombre_base = os.path.splitext(archivo)[0]
-            nombre_md = f"{nombre_base}.md"
-            nombre_json = f"{nombre_base}.json"
-            
-            # ==========================================
-            # FASE 2: POST-PROCESAMIENTO (Genera MD Canónico con YAML)
-            # ==========================================
-            # Verificamos que la Fase 1 haya creado los archivos en la carpeta de resultados
-            if os.path.exists(os.path.join(carpeta_resultados, nombre_md)) and os.path.exists(os.path.join(carpeta_resultados, nombre_json)):
-                # Ejecutamos el post-procesador también desde adentro de la carpeta
-                subprocess.run(
-                    ["python", script_post_procesador, nombre_json, nombre_md], 
-                    cwd=carpeta_resultados,
-                    check=True, 
-                    capture_output=True,
-                    text=True
-                )
+
+            if tipo_res == "EXITO":
                 exitos += 1
             else:
-                raise Exception("El extractor no generó los archivos MD o JSON esperados.")
-            
-        except subprocess.CalledProcessError as e:
-            # Si falla alguno de los dos scripts (ej: falta pip install pyyaml o el PDF está roto)
-            error_msg = f"{archivo} | Error del script: {e.stderr.strip()}"
-            logging.error(error_msg)
-            print(f"\n[ERROR] Falló el procesamiento de: {archivo}. Revisa errores_extraccion.log")
-            errores += 1
-            
-        except Exception as e:
-            # Cualquier otro error del sistema
-            logging.error(f"{archivo} | Error inesperado: {str(e)}")
-            print(f"\n[ERROR CRÍTICO] en {archivo}: {str(e)}")
-            errores += 1
+                errores += 1
+                logging.error(detalle)
+                print(f"\n[ERROR] Falló el procesamiento de: {archivo_procesado}. Revisa errores_extraccion.log")
 
     print(f"\n\n--- Proceso finalizado ---".ljust(60))
     print(f"Exitosos: {exitos}")
