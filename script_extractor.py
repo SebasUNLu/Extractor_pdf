@@ -322,6 +322,37 @@ def aplanar_y_limpiar_avanzado(ruta_entrada):
     print(f"--- Fase 1: PDF Normalizado en Memoria ---")
     return buffer_pdf
 
+
+def escribir_reporte_escaneos(ruta_pdf, motivo):
+    """Registra el PDF escaneado en docus_escaneos.txt dentro del directorio de trabajo actual."""
+    ruta_reporte = os.path.join(os.getcwd(), "docus_escaneos.txt")
+    with open(ruta_reporte, "a", encoding="utf-8") as f:
+        f.write(f"{os.path.basename(ruta_pdf)} | {motivo}\n")
+
+
+def validar_y_filtrar_pdf(ruta_pdf):
+    """
+    Analiza las primeras páginas del PDF original antes del procesamiento pesado.
+    Determina si es apto para el extractor o si debe ser segregado.
+    Devuelve (es_escaneado, motivo).
+    """
+    try:
+        with fitz.open(ruta_pdf) as doc:
+            texto_primeras_paginas = ""
+            for pagina in doc[:2]:
+                texto_primeras_paginas += pagina.get_text()
+
+            texto_limpio = " ".join(texto_primeras_paginas.split())
+            if not texto_limpio:
+                return True, "Escaneo puro (sin texto legible en las primeras páginas)"
+            if len(texto_limpio) < 60:
+                return True, "Escaneo puro (texto demasiado corto en las primeras páginas)"
+
+        return False, "APTO"
+    except Exception as e:
+        return False, f"No se pudo validar el PDF: {str(e)}"
+
+
 def extraer_a_markdown_directo(buffer_pdf, nombre_original):
     """
     Realiza la extracción jerarquizada (Visto, Considerando, Tablas).
@@ -960,6 +991,12 @@ if __name__ == "__main__":
         print("Uso: python script.py archivo.pdf")
     else:
         ruta_archivo = sys.argv[1]
+        es_escaneado, motivo = validar_y_filtrar_pdf(ruta_archivo)
+        if es_escaneado:
+            escribir_reporte_escaneos(ruta_archivo, motivo)
+            print(f"FILTRADO: {os.path.basename(ruta_archivo)} | {motivo}", file=sys.stderr)
+            sys.exit(2)
+
         inicio = time.time()
         pdf_limpio = aplanar_y_limpiar_avanzado(ruta_archivo)
         if pdf_limpio:

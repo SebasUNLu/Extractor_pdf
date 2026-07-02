@@ -14,6 +14,18 @@ logging.basicConfig(
     format='%(asctime)s - Archivo: %(message)s'
 )
 
+def registrar_escaneo(carpeta_resultados, archivo, detalle):
+    """Guarda el PDF filtrado en docus_escaneos.txt dentro de la carpeta de resultados."""
+    ruta_escaneos = os.path.join(carpeta_resultados, "docus_escaneos.txt")
+    if os.path.exists(ruta_escaneos):
+        with open(ruta_escaneos, "r", encoding="utf-8") as f:
+            if any(line.startswith(f"{archivo} |") for line in f):
+                return
+
+    with open(ruta_escaneos, "a", encoding="utf-8") as f:
+        f.write(f"{archivo} | {detalle}\n")
+
+
 def procesar_un_archivo(archivo, ruta_origen_abs, carpeta_resultados, script_extractor, script_post_procesador):
     """Procesa un único PDF con la misma lógica del flujo actual."""
     ruta_completa_pdf = os.path.join(ruta_origen_abs, archivo)
@@ -44,7 +56,12 @@ def procesar_un_archivo(archivo, ruta_origen_abs, carpeta_resultados, script_ext
             return "ERROR", archivo, "El extractor no generó los archivos MD o JSON esperados."
 
     except subprocess.CalledProcessError as e:
-        error_msg = f"{archivo} | Error del script: {e.stderr.strip()}"
+        stderr = (e.stderr or "").strip()
+        if e.returncode == 2 or "FILTRADO" in stderr.upper() or "ESCANEO" in stderr.upper():
+            registrar_escaneo(carpeta_resultados, archivo, stderr or "Escaneo puro")
+            return "FILTRADO", archivo, stderr or "Escaneo puro"
+
+        error_msg = f"{archivo} | Error del script: {stderr}"
         return "ERROR", archivo, error_msg
     except Exception as e:
         error_msg = f"{archivo} | Error inesperado: {str(e)}"
@@ -86,6 +103,7 @@ def procesar_carpeta(ruta_destino, cantidad_aleatoria=None):
     print(f"--- Se encontraron {len(archivos)} archivos. Iniciando proceso masivo ---")
     
     exitos = 0
+    escaneos = 0
     errores = 0
 
     if len(archivos) > 1:
@@ -111,6 +129,9 @@ def procesar_carpeta(ruta_destino, cantidad_aleatoria=None):
                 if tipo_res == "EXITO":
                     exitos += 1
                     print(f"[{indice}/{len(archivos)} - {porcentaje:.1f}%] OK: {archivo_procesado}")
+                elif tipo_res == "FILTRADO":
+                    escaneos += 1
+                    print(f"\n[FILTRADO] {archivo_procesado}: {detalle}")
                 else:
                     errores += 1
                     logging.error(detalle)
@@ -128,6 +149,9 @@ def procesar_carpeta(ruta_destino, cantidad_aleatoria=None):
 
             if tipo_res == "EXITO":
                 exitos += 1
+            elif tipo_res == "FILTRADO":
+                escaneos += 1
+                print(f"\n[FILTRADO] {archivo_procesado}: {detalle}")
             else:
                 errores += 1
                 logging.error(detalle)
@@ -135,6 +159,7 @@ def procesar_carpeta(ruta_destino, cantidad_aleatoria=None):
 
     print(f"\n\n--- Proceso finalizado ---".ljust(60))
     print(f"Exitosos: {exitos}")
+    print(f"Filtrados (escaneos): {escaneos}")
     print(f"Fallidos: {errores}")
     print(f"Resultados guardados en: {carpeta_resultados}")
     if errores > 0:
