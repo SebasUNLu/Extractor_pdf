@@ -49,12 +49,13 @@ def procesar_carpeta(ruta_destino, cantidad_aleatoria=None):  # <-- Agregado par
     
     exitos = 0
     errores = 0
-
+    contador = 0
     for archivo in archivos:
         # Usamos la ruta absoluta al PDF para que el extractor lo encuentre sin problemas
         ruta_completa_pdf = os.path.join(ruta_origen_abs, archivo)
         print(f"Procesando: {archivo}...".ljust(60), end="\r")
-        
+        contador += 1
+        print(f"Archivo procesado numero {contador}\n")
         try:
             # ==========================================
             # FASE 1: EXTRACCIÓN (Genera MD y JSON nativamente en la carpeta final)
