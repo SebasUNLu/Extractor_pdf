@@ -128,17 +128,22 @@ def procesar_carpeta(ruta_destino, cantidad_aleatoria=None):
 
                 if tipo_res == "EXITO":
                     exitos += 1
-                    print(f"[{indice}/{len(archivos)} - {porcentaje:.1f}%] OK: {archivo_procesado}")
+                    estado = f"OK: {archivo_procesado}"
                 elif tipo_res == "FILTRADO":
                     escaneos += 1
-                    print(f"\n[FILTRADO] {archivo_procesado}: {detalle}")
+                    estado = f"FILTRADO: {archivo_procesado}"
                 else:
                     errores += 1
                     logging.error(detalle)
-                    print(f"\n[ERROR] Falló el procesamiento de: {archivo_procesado}. Revisa errores_extraccion.log")
+                    estado = f"ERROR: {archivo_procesado}"
+
+                print(
+                    f"\r[{indice}/{len(archivos)} - {porcentaje:.1f}%] {estado}",
+                    end="",
+                    flush=True
+                )
     else:
-        for archivo in archivos:
-            print(f"Procesando: {archivo}...".ljust(60), end="\r")
+        for indice, archivo in enumerate(archivos, start=1):
             tipo_res, archivo_procesado, detalle = procesar_un_archivo(
                 archivo,
                 ruta_origen_abs,
@@ -147,15 +152,23 @@ def procesar_carpeta(ruta_destino, cantidad_aleatoria=None):
                 script_post_procesador
             )
 
+            porcentaje = (indice / len(archivos)) * 100
             if tipo_res == "EXITO":
                 exitos += 1
+                estado = f"OK: {archivo_procesado}"
             elif tipo_res == "FILTRADO":
                 escaneos += 1
-                print(f"\n[FILTRADO] {archivo_procesado}: {detalle}")
+                estado = f"FILTRADO: {archivo_procesado}"
             else:
                 errores += 1
                 logging.error(detalle)
-                print(f"\n[ERROR] Falló el procesamiento de: {archivo_procesado}. Revisa errores_extraccion.log")
+                estado = f"ERROR: {archivo_procesado}"
+
+            print(
+                f"\r[{indice}/{len(archivos)} - {porcentaje:.1f}%] {estado}",
+                end="",
+                flush=True
+            )
 
     print(f"\n\n--- Proceso finalizado ---".ljust(60))
     print(f"Exitosos: {exitos}")
