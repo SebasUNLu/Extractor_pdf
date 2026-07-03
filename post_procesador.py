@@ -46,6 +46,7 @@ def extraer_ciudad_desde_md(contenido_md):
         r'(?:\s*,\s*(Buenos\s+Aires))?'
         r'\s*,?\s*'
         r'(?:\d{1,2}\s*(?:de\s*)?(?:[a-zA-ZáéíóúÁÉÍÓÚ]{3,10})\s*(?:de\s*)?\d{2,4}'
+        r'|[a-zA-ZáéíóúÁÉÍÓÚ]{3,10}\s*(?:de\s*)?\d{2,4}'
         r'|\d{1,2}[\/\-]\d{1,2}[\/\-]\d{2,4})?'
         r'\s*(?:\.-)?\s*$',
         re.IGNORECASE

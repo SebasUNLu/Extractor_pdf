@@ -498,6 +498,7 @@ def extraer_a_markdown_directo(buffer_pdf, nombre_original):
         r'(?:\s*,\s*(Buenos\s+Aires))?'
         r'\s*,?\s*'
         r'(?=(?:\d{1,2}\s*(?:de\s*)?(?:[a-zA-ZáéíóúÁÉÍÓÚ]{3,10})\s*(?:de\s*)?\d{2,4}'
+        r'|[a-zA-ZáéíóúÁÉÍÓÚ]{3,10}\s*(?:de\s*)?\d{2,4}'
         r'|\d{1,2}[\/\-]\d{1,2}[\/\-]\d{2,4}'
         r'|\bVISTO\b|$))',
         re.IGNORECASE
@@ -663,7 +664,7 @@ def extraer_a_markdown_directo(buffer_pdf, nombre_original):
                 for linea in b["lines"]:
                     for span in linea["spans"]:
                         txt_limpio = span["text"].strip()
-                        if txt_limpio and "///" not in txt_limpio and not patron_folio.match(txt_limpio) and not patron_paginacion.match(txt_limpio):
+                        if txt_limpio and "///" not in txt_limpio and not patron_folio.match(txt_limpio):
                             primer_span = span
                             break
                     if primer_span: break
@@ -682,7 +683,7 @@ def extraer_a_markdown_directo(buffer_pdf, nombre_original):
                         txt_raw = span["text"]
                         txt_strip = txt_raw.strip()
                         
-                        if "///" in txt_strip or patron_folio.match(txt_strip) or patron_paginacion.match(txt_strip):
+                        if "///" in txt_strip or patron_folio.match(txt_strip):
                             continue
                             
                         if not txt_strip:
