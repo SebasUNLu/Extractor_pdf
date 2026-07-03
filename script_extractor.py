@@ -330,6 +330,111 @@ def escribir_reporte_escaneos(ruta_pdf, motivo):
         f.write(f"{os.path.basename(ruta_pdf)} | {motivo}\n")
 
 
+def valor_incompleto(valor):
+    if valor is None:
+        return True
+    if isinstance(valor, str):
+        return not valor.strip() or valor.strip().lower() == "unknown"
+    if isinstance(valor, dict):
+        return len(valor) == 0
+    if isinstance(valor, list):
+        if not valor:
+            return True
+        if all(
+            (isinstance(item, str) and (not item.strip() or item.strip().lower() == "unknown"))
+            or item in [None, ""]
+            for item in valor
+        ):
+            return True
+        return False
+    return False
+
+
+def campos_metadata_incompletos(metadata_json):
+    # Sólo comprobamos los campos básicos definidos en post_procesador.py
+    detected = metadata_json.get("detected_entities", {})
+
+    # Mapear a los nombres canónicos esperados por el post-procesador
+    basic = {}
+    basic["document_id"] = metadata_json.get("document_id_hint")
+    basic["source_pdf"] = metadata_json.get("source_pdf")
+    basic["source_system"] = metadata_json.get("source_system_hint")
+
+    # document_type: inferir a partir de document_id_hint si es posible
+    doc_hint = (metadata_json.get("document_id_hint") or "").lower()
+    if doc_hint.startswith("res_"):
+        basic["document_type"] = "resolucion"
+    elif doc_hint.startswith("disp_"):
+        basic["document_type"] = "disposicion"
+    else:
+        basic["document_type"] = "unknown"
+
+    # issuing_body: primer candidato si existe
+    issuing = detected.get("issuing_body_candidates", [])
+    basic["issuing_body"] = issuing[0] if issuing else None
+
+    # document_code / document_number: intentar extraer desde document_code_candidates
+    doc_codes = detected.get("document_code_candidates", [])
+    if doc_codes:
+        primera = doc_codes[0]
+        if ":" in primera:
+            partes = primera.split(":", 1)
+            basic["document_code"] = partes[0].strip()
+            basic["document_number"] = partes[1].strip()
+        else:
+            basic["document_code"] = primera
+            basic["document_number"] = None
+    else:
+        basic["document_code"] = None
+        basic["document_number"] = None
+
+    # date_issued / year
+    dates = detected.get("date_candidates", [])
+    basic["date_issued"] = dates[0] if dates else None
+    if basic["date_issued"] and isinstance(basic["date_issued"], str) and "-" in basic["date_issued"]:
+        try:
+            basic["year"] = int(basic["date_issued"].split("-")[0])
+        except Exception:
+            basic["year"] = "unknown"
+    else:
+        basic["year"] = "unknown"
+
+    # city
+    cities = detected.get("city_candidates", [])
+    basic["city"] = cities[0] if cities else None
+
+    # signature_mode: reproducir la lógica simple del post_procesador
+    source_system = metadata_json.get("source_system_hint", "unknown")
+    has_sig_page = metadata_json.get("global_hints", {}).get("has_signature_page", False)
+    if source_system == "electronic":
+        basic["signature_mode"] = "digital"
+    elif has_sig_page:
+        basic["signature_mode"] = "separate_page"
+    else:
+        basic["signature_mode"] = "embedded"
+
+    campos_basicos = [
+        "document_id", "source_pdf", "source_system", "document_type",
+        "issuing_body", "document_code", "document_number",
+        "date_issued", "year", "city", "signature_mode"
+    ]
+
+    incompletos = 0
+    campos_incompletos = []
+    for k in campos_basicos:
+        val = basic.get(k)
+        if valor_incompleto(val):
+            incompletos += 1
+            campos_incompletos.append(k)
+
+    return incompletos, campos_incompletos
+
+
+def es_documento_especial(metadata_json):
+    incompletos, campos_incompletos = campos_metadata_incompletos(metadata_json)
+    return incompletos >= 7, campos_incompletos
+
+
 def validar_y_filtrar_pdf(ruta_pdf):
     """
     Analiza las primeras páginas del PDF original antes del procesamiento pesado.
@@ -975,6 +1080,16 @@ def extraer_a_markdown_directo(buffer_pdf, nombre_original):
             resto_doc = re.sub(r'[\s\/\-\:\.]+', '_', resto_doc).strip('_')
             
             metadata_json["document_id_hint"] = f"{tipo_doc}_{resto_doc}"
+
+    es_especial, campos_incompletos = es_documento_especial(metadata_json)
+    if es_especial:
+        detalle_campos = ", ".join(campos_incompletos) if campos_incompletos else "ninguno"
+        escribir_reporte_escaneos(
+            nombre_original,
+            f"Documento especial (campos incompletos: {detalle_campos})"
+        )
+        print(f"Documento especial detectado para {nombre_original}; no se generan JSON/MD.")
+        return None
 
     nombre_salida = f"{os.path.splitext(nombre_original)[0]}.md"
     with open(nombre_salida, "w", encoding="utf-8") as f:
