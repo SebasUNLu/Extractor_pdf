@@ -555,7 +555,7 @@ def extraer_a_markdown_directo(buffer_pdf, nombre_original):
             if widget.field_type == fitz.PDF_WIDGET_TYPE_SIGNATURE:
                 metadata_json["source_system_hint"] = "electronic"
         
-        margen_superior = cp.y0 + (alto * 0.09)
+        margen_superior = cp.y0 + (alto * 0.06)
         margen_inferior = alto
 
         tabs = pagina.find_tables(strategy="lines_strict", snap_tolerance=4)
