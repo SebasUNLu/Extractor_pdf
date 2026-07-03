@@ -41,7 +41,8 @@ def normalizar_ciudad(valor):
 def extraer_ciudad_desde_md(contenido_md):
     patron_ciudad = re.compile(
         r'^\s*(?:#\s*)?'
-        r'(Luj[aá]n|Campana|Chivilcoy|San\s+Miguel|CABA|Buenos\s+Aires|Capital\s+Federal)'
+        #verificar que esto tome nombres completamente en mayusculas
+        r'(Luj[aá]n|Campana|Chivilcoy|San\s+Miguel|CABA|Buenos\s+Aires|Capital\s+Federal)' 
         r'(?:\s*,\s*(Buenos\s+Aires))?'
         r'\s*,?\s*'
         r'(?:\d{1,2}\s*(?:de\s*)?(?:[a-zA-ZáéíóúÁÉÍÓÚ]{3,10})\s*(?:de\s*)?\d{2,4}'
@@ -236,10 +237,12 @@ def generar_documento_yaml_final(ruta_json, ruta_md):
             if isinstance(s, dict):
                 name = str(s.get("name", "")).lower()
                 role = str(s.get("role", "")).lower()
-                if name in ["unknown", ""] or role in ["unknown", ""]:
+                if name in ["unknown", ""]:
                     campos_erroneos.append("signers")
                     break
-
+                if role in ["unknown", ""]:
+                    campos_erroneos.append("role")
+                    break
     # 3. Validación específica de 'auxiliary_codes'
     # Debe tener algo (no estar vacío ni poseer elementos "unknown")
     aux_codes = datos_completos.get("auxiliary_codes", [])
