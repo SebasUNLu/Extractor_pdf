@@ -435,23 +435,51 @@ def es_documento_especial(metadata_json):
     return incompletos >= 7, campos_incompletos
 
 
-def validar_y_filtrar_pdf(ruta_pdf):
+def validar_y_filtrar_pdf(ruta_pdf, umbral_cobertura_imagen=0.75):
     """
     Analiza las primeras páginas del PDF original antes del procesamiento pesado.
-    Determina si es apto para el extractor o si debe ser segregado.
+    Determina si es apto para el extractor o si debe ser segregado por ser un escaneo
+    o por estar cubierto mayoritariamente por imágenes.
     Devuelve (es_escaneado, motivo).
     """
     try:
         with fitz.open(ruta_pdf) as doc:
             texto_primeras_paginas = ""
-            for pagina in doc[:2]:
-                texto_primeras_paginas += pagina.get_text()
+            
+            # Evaluamos las primeras 2 páginas (o las que desees)
+            for i, pagina in enumerate(doc[:2]):
+                # 1. Filtro por contenido de texto tradicional
+                texto_pag = pagina.get_text()
+                texto_primeras_paginas += texto_pag
+                
+                # 2. Filtro por cobertura de imágenes
+                area_pagina = pagina.rect.width * pagina.rect.height
+                if area_pagina == 0:
+                    continue
+                
+                # get_image_info(rects=True) devuelve los rectángulos de renderizado de las imágenes
+                info_imagenes = pagina.get_image_info(rects=True)
+                area_imagenes_total = 0
+                
+                for img in info_imagenes:
+                    r_img = img["rect"]
+                    # Intersecamos el rectángulo de la imagen con el de la página 
+                    # para no contar áreas que queden fuera del papel
+                    r_interseccion = r_img & pagina.rect
+                    area_imagenes_total += r_interseccion.width * r_interseccion.height
+                
+                # Calculamos qué porcentaje de la página está cubierto por imágenes
+                porcentaje_cobertura = area_imagenes_total / area_pagina
+                
+                if porcentaje_cobertura > umbral_cobertura_imagen:
+                    return True, f"La página {i+1} es mayoritariamente una imagen ({porcentaje_cobertura * 100:.1f}% de cobertura)"
 
+            # Validación final del texto acumulado de las primeras páginas
             texto_limpio = " ".join(texto_primeras_paginas.split())
             if not texto_limpio:
                 return True, "Escaneo puro (sin texto legible en las primeras páginas)"
             if len(texto_limpio) < 60:
-                return True, "Escaneo puro (texto demasiado corto en las primeras páginas)"
+                return True, "Escaneo parcial (texto demasiado corto en las primeras páginas)"
 
         return False, "APTO"
     except Exception as e:
@@ -1080,6 +1108,13 @@ def extraer_a_markdown_directo(buffer_pdf, nombre_original):
             resto_doc = re.sub(r'[\s\/\-\:\.]+', '_', resto_doc).strip('_')
             
             metadata_json["document_id_hint"] = f"{tipo_doc}_{resto_doc}"
+
+    # Prioridad: si el PDF ya fue clasificado como escaneo puro en la validación previa,
+    # no debe caer aquí como documento especial.
+    if not contenido_final or not any(texto.strip() for texto in contenido_final if isinstance(texto, str)):
+        escribir_reporte_escaneos(nombre_original, "Escaneo puro (sin contenido procesable)")
+        print(f"Escaneo puro detectado para {nombre_original}; no se generan JSON/MD.")
+        return None
 
     es_especial, campos_incompletos = es_documento_especial(metadata_json)
     if es_especial:
