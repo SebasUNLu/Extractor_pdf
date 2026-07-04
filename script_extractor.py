@@ -6,6 +6,7 @@ import time
 import re
 import io
 import json
+import unicodedata
 
 TITULOS_FIRMA = r'Prof\.|Lic\.|Dr\.|Dra\.|Ing\.|Bioq\.|Esp\.|Mg\.|Mgter\.|Mag\.|Abog\.'
 NOMBRE_FIRMANTE = r'((?:(?:[A-ZÁÉÍÓÚÑ][a-záéíóúüñ]+|[A-ZÁÉÍÓÚÑ]\.)\s+)*(?:[A-ZÁÉÍÓÚÑ]{2,}|[A-ZÁÉÍÓÚÑ][a-záéíóúüñ]{2,})(?:\s+(?:[A-ZÁÉÍÓÚÑ]{2,}|[A-ZÁÉÍÓÚÑ][a-záéíóúüñ]{2,}))*)'
@@ -28,10 +29,12 @@ def normalizar_para_regex(texto):
     reemplazos = {
         "Á": "A", "É": "E", "Í": "I", "Ó": "O", "Ú": "U", "Ñ": "N",
         "á": "a", "é": "e", "í": "i", "ó": "o", "ú": "u", "ñ": "n",
-        "°": " ", "º": " "
+        "°": " ", "º": " ", "\xa0": " "
     }
     for origen, destino in reemplazos.items():
         texto = texto.replace(origen, destino)
+    texto = unicodedata.normalize("NFD", texto)
+    texto = "".join(c for c in texto if unicodedata.category(c) != "Mn")
     return texto
 
 def extraer_titulo_norma_legacy(texto):
@@ -41,18 +44,19 @@ def extraer_titulo_norma_legacy(texto):
     """
     texto_norm = normalizar_para_regex(texto).upper()
     texto_norm = re.sub(r'\s+', ' ', texto_norm)
-    texto_norm = re.sub(r'\bN\s+', ' N ', texto_norm)
 
     patron = re.compile(
         r'\b(RESOLUCION|DISPOSICION)\s+'
-        r'([A-Z](?:\.[A-Z])+\.?)\s*N\s*0*(\d+)\s*/\s*(\d{2,4})\b'
+        r'([A-Z]{1,8}(?:\.[A-Z]{1,8})*|[A-Z]{2,}(?:-[A-Z0-9]+)*)'
+        r'\.?\s*N\s*(?:RO|UMERO)?\s*[:.]?\s*0*(\d+)\s*(?:/|-)\s*(\d{2,4})\b'
     )
     matches = list(patron.finditer(texto_norm))
     if not matches:
         return None
 
     match = matches[-1]
-    return match.group(1).title(), match.group(2).strip(), match.group(3), match.group(4)
+    codigo = match.group(2).strip().rstrip(".")
+    return match.group(1).title(), codigo, match.group(3), match.group(4)
 
 def es_contexto_cierre_norma(texto):
     texto = reparar_mojibake(texto)
@@ -867,7 +871,7 @@ def extraer_a_markdown_directo(buffer_pdf, nombre_original):
                         titulo_encontrado = f"# {match.group(1).capitalize()} {match.group(2)} - {int(match.group(3))}/{match.group(4)}"
                         continue
                     norma_legacy = extraer_titulo_norma_legacy(texto_unido_plano)
-                    if norma_legacy and es_contexto_cierre_norma(texto_unido_plano):
+                    if norma_legacy and (es_contexto_cierre_norma(texto_unido_plano) or es_contexto_titulo_norma(texto_unido_plano)):
                         tipo_norma, codigo_norma, numero_norma, anio_norma = norma_legacy
                         titulo_encontrado = f"# {tipo_norma} {codigo_norma} - {int(numero_norma)}/{anio_norma}"
                         continue

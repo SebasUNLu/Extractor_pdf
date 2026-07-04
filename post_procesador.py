@@ -15,14 +15,22 @@ def extraer_codigo_desde_encabezado_md(contenido_md):
         r'.*?\b([A-Z]{2,}(?:-[A-Z0-9]+)*)\s*:\s*(\d+)\s*(?:[\/\-])\s*(\d{2,4})\b',
         re.IGNORECASE
     )
+    patron_encabezado_generado = re.compile(
+        r'^\s*(?:#\s*)?(?:DISPOSICI[ÓO]N|RESOLUCI[ÓO]N)\s+'
+        r'([A-Z]{1,8}(?:\.[A-Z]{1,8})*|[A-Z]{2,}(?:-[A-Z0-9]+)*)'
+        r'\s*[-:]\s*0*(\d+)\s*(?:[\/\-])\s*(\d{2,4})\b',
+        re.IGNORECASE
+    )
 
     for linea in lineas[:12]:
         if re.search(r'\b(VISTO|CONSIDERANDO|ART[IÍ]CULO)\b', linea, re.IGNORECASE):
             break
 
         match = patron_encabezado_portal.search(linea)
+        if not match:
+            match = patron_encabezado_generado.search(linea)
         if match:
-            codigo = match.group(1).strip()
+            codigo = match.group(1).strip().rstrip(".")
             numero = match.group(2).strip()
             anio = match.group(3).strip()
             return codigo, f"{numero}/{anio}"
