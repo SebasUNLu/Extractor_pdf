@@ -795,16 +795,8 @@ def extraer_a_markdown_directo(buffer_pdf, nombre_original):
                         if fecha_norm and fecha_norm not in metadata_json["detected_entities"]["date_candidates"]:
                             metadata_json["detected_entities"]["date_candidates"].append(fecha_norm)
                     
-                    for match in patron_ciudad_emision.finditer(texto_unido_plano):
-                        ciudad_detectada = match.group(1).upper()
-                        provincia_detectada = match.group(2).upper() if match.group(2) else ""
-                        if ciudad_detectada in ["LUJAN", "LUJÁN"]:
-                            ciudad_detectada = "LUJÁN"
-                        if provincia_detectada == "BUENOS AIRES" and ciudad_detectada != "BUENOS AIRES":
-                            ciudad_detectada = f"{ciudad_detectada}, BUENOS AIRES"
-                            
-                        if ciudad_detectada not in metadata_json["detected_entities"]["city_candidates"]:
-                            metadata_json["detected_entities"]["city_candidates"].append(ciudad_detectada)
+                    if "LUJÁN" not in metadata_json["detected_entities"]["city_candidates"]:
+                        metadata_json["detected_entities"]["city_candidates"].append("LUJÁN")
 
                     for match in patron_emisor.finditer(texto_unido_plano):
                         emisor = match.group(1).strip().title()
