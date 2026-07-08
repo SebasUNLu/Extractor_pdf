@@ -539,7 +539,16 @@ def extraer_a_markdown_directo(buffer_pdf, nombre_original):
     patron_disclaimer_web = re.compile(r'(texto de los documentos publicados|validez para su presentación en terceras|de gestión de doc\. y actos adm)', re.IGNORECASE)
     
     # Patrones para entidades específicas
-    patron_emisor = re.compile(r'\b(H\.\s*CONSEJO\s+SUPERIOR|CONSEJO\s+DIRECTIVO|RECTORADO|DEPARTAMENTO\s+DE\s+[A-Z\sÁÉÍÓÚ]+)\b', re.IGNORECASE)
+    patron_emisor = re.compile(
+        r'\b('
+        r'CONSEJO\s+DIRECTIVO\s+DEL\s+DEPARTAMENTO\s+DE\s+[A-Z\sÁÉÍÓÚÑ]+'
+        r'|H\.\s*CONSEJO\s+SUPERIOR'
+        r'|CONSEJO\s+DIRECTIVO'
+        r'|RECTORADO'
+        r'|DEPARTAMENTO\s+DE\s+[A-Z\sÁÉÍÓÚÑ]+'
+        r')\b',
+        re.IGNORECASE
+    )
     patron_firmante = re.compile(rf'(?:(?:{TITULOS_FIRMA})\s+)+{NOMBRE_FIRMANTE}(?:[\s\.\-:]+(.*))?')
     patron_firmante_sin_titulo = re.compile(rf'\b{NOMBRE_FIRMANTE}[\s\.\-:]+({ROL_FIRMANTE_KEYWORDS}\b.*)', re.IGNORECASE)
        
@@ -799,7 +808,8 @@ def extraer_a_markdown_directo(buffer_pdf, nombre_original):
 
                     for match in patron_emisor.finditer(texto_unido_plano):
                         emisor = match.group(1).strip().title()
-                        if emisor not in metadata_json["detected_entities"]["issuing_body_candidates"]:
+                        es_departamento_suelto = emisor.startswith("Departamento De ")
+                        if not es_departamento_suelto and emisor not in metadata_json["detected_entities"]["issuing_body_candidates"]:
                             metadata_json["detected_entities"]["issuing_body_candidates"].append(emisor)
                         if "Departamento" in emisor and emisor not in metadata_json["detected_entities"]["academic_unit_candidates"]:
                             metadata_json["detected_entities"]["academic_unit_candidates"].append(emisor)

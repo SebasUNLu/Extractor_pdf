@@ -37,6 +37,309 @@ def extraer_codigo_desde_encabezado_md(contenido_md):
 
     return None, None
 
+def normalizar_espacios(valor):
+    return re.sub(r'\s+', ' ', str(valor)).strip()
+
+def es_linea_contexto_emisor(linea):
+    linea = normalizar_espacios(linea).lstrip("#").strip()
+    if not linea:
+        return False
+    if re.match(r'^(por\s+ello|universidad\s+nacional|rep[uú]blica|luj[aá]n|buenos\s+aires)', linea, re.IGNORECASE):
+        return False
+    if re.search(r'^(?:["“]|19\d{2}|20\d{2})', linea):
+        return False
+    if re.search(r'(reapertura\s+de\s+la\s+universidad|reconocimiento\s+constitucional|autonom[ií]a\s+universitaria)', linea, re.IGNORECASE):
+        return False
+    return True
+
+def limpiar_emisor_desde_bloque(candidato, document_type):
+    emisor = normalizar_espacios(candidato)
+    emisor = re.sub(r'\bD\s*I\s*S\s*P\s*O\s*N\s*E\b.*$', '', emisor, flags=re.IGNORECASE)
+    emisor = re.sub(r'\bR\s*E\s*S\s*U\s*E\s*L\s*V\s*E\b.*$', '', emisor, flags=re.IGNORECASE)
+    emisor = re.sub(r'^(?:por\s+ello[,;:]?\s*)+', '', emisor, flags=re.IGNORECASE)
+    emisor = re.sub(r'^(?:el|la)\s+', '', emisor, flags=re.IGNORECASE)
+    emisor = re.sub(
+        r'\s+DE\s+LA\s+UNIVERSIDAD\s+NACIONAL\s+DE\s+LUJ[ÁA]N\s*$',
+        '',
+        emisor,
+        flags=re.IGNORECASE
+    )
+    emisor = re.sub(r'\s+UNIVERSIDAD\s+NACIONAL\s+DE\s+LUJ[ÁA]N.*$', '', emisor, flags=re.IGNORECASE)
+    emisor = re.sub(r'\s+DE\s+LA\s*$', '', emisor, flags=re.IGNORECASE)
+    emisor = limpiar_emisor_detectado(emisor)
+
+    if re.match(r'^RECTOR(?:A)?\s*(?:DE\s+LA\s+UNIVERSIDAD)?', emisor, re.IGNORECASE):
+        tipo = "RESOLUCION" if document_type == "resolucion" else "DISPOSICION"
+        return f"{tipo} RECTOR"
+
+    emisor = re.sub(r'^DIRECTOR(?:A)?\s+GENERAL\b', 'DIRECCION GENERAL', emisor, flags=re.IGNORECASE)
+    emisor = re.sub(r'^SECRETARIO\b', 'SECRETARIA', emisor, flags=re.IGNORECASE)
+    emisor = re.sub(r'^SUBSECRETARIO\b', 'SUBSECRETARIA', emisor, flags=re.IGNORECASE)
+    emisor = re.sub(r'^(SECRETARIA\s+)ACAD[ÉE]MICO\b', r'\1ACADÉMICA', emisor, flags=re.IGNORECASE)
+
+    return normalizar_espacios(emisor).upper()
+
+def extraer_emisor_generico_desde_preambulo(preambulo, document_type):
+    """
+    Extrae la frase de autoridad ubicada despues del ultimo "Por ello".
+    Evita depender de una lista cerrada de organismos.
+    """
+    matches = list(re.finditer(r'\bpor\s+ello\b[,;:]?', preambulo, re.IGNORECASE))
+    if not matches:
+        return None
+
+    bloque = preambulo[matches[-1].end():]
+    lineas = []
+    for linea in bloque.splitlines():
+        limpia = normalizar_espacios(linea).lstrip("#").strip()
+        if re.match(r'^(?:Art[íi]culo|Parte\s+(?:resolutiva|dispositiva)|Firmas|Hoja\s+de\s+firmas)\b', limpia, re.IGNORECASE):
+            break
+        if lineas and re.search(r'\bUniversidad\s+Nacional\s+de\s+Luj[áa]n\b', limpia, re.IGNORECASE):
+            limpia = re.split(r'\bUniversidad\s+Nacional\s+de\s+Luj[áa]n\b', limpia, maxsplit=1, flags=re.IGNORECASE)[0].strip()
+            if limpia and es_linea_contexto_emisor(limpia):
+                lineas.append(limpia)
+            break
+        if (
+            lineas
+            and re.match(r'^Departamento\s+de\b', limpia, re.IGNORECASE)
+            and not re.search(r'\b(de|del)$', lineas[-1], re.IGNORECASE)
+        ):
+            break
+        if es_linea_contexto_emisor(limpia):
+            lineas.append(limpia)
+
+    if not lineas:
+        return None
+
+    inicio_autoridad = re.compile(
+        r'^(?:EL|LA)\s+'
+        r'(?:RECTOR(?:A)?|VICERRECTOR(?:A)?|ASAMBLEA|CONSEJO|'
+        r'DIRECTOR(?:A)?|VICEDIRECTOR(?:A)?|DECANO|DECANA|'
+        r'SECRETAR\S*|SUBSECRETAR\S*|DIRECCI[OÓ]N|CENTRO|DEPARTAMENTO)\b',
+        re.IGNORECASE
+    )
+    for idx in range(len(lineas) - 1, -1, -1):
+        if inicio_autoridad.search(lineas[idx]):
+            candidato = normalizar_espacios(" ".join(lineas[idx:idx + 4]))
+            return limpiar_emisor_desde_bloque(candidato, document_type)
+
+    candidato = normalizar_espacios(" ".join(lineas[-6:]))
+    if not re.search(r'\bsubsecretari[oa]\b', candidato, re.IGNORECASE) and not re.search(
+        r'\b(rector|vicerrector|asamblea|consejo|director|directora|vicedirector|vicedirectora|decano|decana|secretari[oa]|direcci[oó]n|centro|departamento)\b',
+        candidato,
+        re.IGNORECASE
+    ):
+        return None
+
+    return limpiar_emisor_desde_bloque(candidato, document_type)
+
+def extraer_emisor_desde_encabezado_md(contenido_md):
+    """
+    Busca el organo emisor en las primeras lineas, antes del cuerpo del acto.
+    """
+    lineas = [normalizar_espacios(l) for l in contenido_md.split('\n') if l.strip()]
+    encabezado = " ".join(lineas[:20])
+    encabezado = re.split(r'\b(VISTO|CONSIDERANDO|ART[IÃ]CULO)\b', encabezado, maxsplit=1, flags=re.IGNORECASE)[0]
+
+    patrones = [
+        r'\bCONSEJO\s+DIRECTIVO\s+DEL\s+DEPARTAMENTO\s+DE\s+[A-ZÃÃ‰ÃÃ“ÃšÃ‘a-zÃ¡Ã©Ã­Ã³ÃºÃ¼Ã±\s]+?(?=\s+(?:DISP|RES|LUJ[AÃ]N|N[Â°Âº]|\d|$))',
+        r'\bH\.\s*CONSEJO\s+SUPERIOR\b',
+        r'\bCONSEJO\s+DIRECTIVO\b',
+        r'\bRECTORADO\b',
+    ]
+
+    for patron in patrones:
+        match = re.search(patron, encabezado, re.IGNORECASE)
+        if match:
+            emisor = normalizar_espacios(match.group(0))
+            return emisor.upper()
+
+    return None
+
+def extraer_emisor_antes_parte_dispositiva(contenido_md, document_type):
+    """
+    Prioriza la frase institucional inmediatamente anterior a RESUELVE/DISPONE.
+    Ejemplos:
+    EL RECTOR DE LA UNIVERSIDAD NACIONAL DE LUJAN
+    EL CONSEJO DIRECTIVO DEL DEPARTAMENTO DE CIENCIAS SOCIALES
+    """
+    partes = re.split(r'##\s+Parte\s+(?:resolutiva|dispositiva)\b', contenido_md, maxsplit=1, flags=re.IGNORECASE)
+    if len(partes) >= 2:
+        preambulo = partes[0]
+    else:
+        partes = re.split(r'(?:###\s*)?Art[íi]culo\s+1\b', contenido_md, maxsplit=1, flags=re.IGNORECASE)
+        if len(partes) < 2:
+            preambulo = contenido_md
+        else:
+            preambulo = partes[0]
+
+    if not preambulo.strip():
+        return None
+
+    emisor_generico = extraer_emisor_generico_desde_preambulo(preambulo, document_type)
+    if emisor_generico:
+        return emisor_generico
+
+    contexto = normalizar_espacios(preambulo[-2500:])
+    match_director_general = re.search(
+        r'\b(?:EL|LA)\s+DIRECTOR(?:A)?\s+GENERAL\s+DE\s+'
+        r'([A-ZÁÉÍÓÚÑa-záéíóúüñ\s]+?)(?=\s+DE\s+LA\s+UNIVERSIDAD)',
+        contexto,
+        re.IGNORECASE
+    )
+    if match_director_general:
+        return f"DIRECCION GENERAL DE {normalizar_espacios(match_director_general.group(1))}".upper()
+
+    match_centro_universidad = re.search(
+        r'\b(?:EL\s+)?(CENTRO\s+DE\s+[A-ZÁÉÍÓÚÑa-záéíóúüñ\s]+?)(?=\s+DE\s+LA\s+UNIVERSIDAD)',
+        contexto,
+        re.IGNORECASE
+    )
+    if match_centro_universidad:
+        return normalizar_espacios(match_centro_universidad.group(1)).upper()
+
+    lineas_previas = [
+        normalizar_espacios(l).lstrip("#").strip()
+        for l in preambulo.splitlines()
+        if normalizar_espacios(l).lstrip("#").strip()
+    ]
+    for linea in reversed(lineas_previas[-25:]):
+        if re.match(r'^(?:DE\s+LA|UNIVERSIDAD\s+NACIONAL|REP[UÚ]BLICA|POR\s+ELLO)', linea, re.IGNORECASE):
+            continue
+
+        match = re.match(r'^LA\s+DIRECCI[OÓ]N\s+GENERAL\s+DE\s+(.+)$', linea, re.IGNORECASE)
+        if match:
+            return limpiar_emisor_detectado(re.sub(r'^LA\s+', '', linea, flags=re.IGNORECASE)).upper()
+
+        match = re.match(r'^(?:EL|LA)\s+DIRECTOR(?:A)?\s+GENERAL\s+DE\s+(.+)$', linea, re.IGNORECASE)
+        if match:
+            return f"DIRECCION GENERAL DE {normalizar_espacios(match.group(1))}".upper()
+
+        match = re.match(r'^EL\s+CONSEJO\s+DIRECTIVO\s+DEL\s+DEPARTAMENTO\s+DE\s+(.+)$', linea, re.IGNORECASE)
+        if match:
+            return limpiar_emisor_detectado(re.sub(r'^EL\s+', '', linea, flags=re.IGNORECASE)).upper()
+
+        match = re.match(r'^(?:EL\s+)?CENTRO\s+DE\s+(.+)$', linea, re.IGNORECASE)
+        if match:
+            return limpiar_emisor_detectado(re.sub(r'^EL\s+', '', linea, flags=re.IGNORECASE)).upper()
+
+        match = re.match(r'^(?:EL|LA)\s+(?:SUBSECRETAR\S*|SECRETAR\S*)\s+(.+)$', linea, re.IGNORECASE)
+        if match:
+            return limpiar_emisor_desde_bloque(linea, document_type)
+
+        if re.match(r'^(?:EL|LA)\s+RECTOR(?:A)?\s+DE\s+LA\s+UNIVERSIDAD\s+NACIONAL\s+DE\s+LUJ', linea, re.IGNORECASE):
+            tipo = "RESOLUCION" if document_type == "resolucion" else "DISPOSICION"
+            return f"{tipo} RECTOR"
+
+    patrones = [
+        (
+            r'\bLA\s+DIRECCI[OÓ]N\s+GENERAL\s+DE\s+'
+            r'[A-ZÁÉÍÓÚÑa-záéíóúüñ\s]+?(?=\s+(?:D\s*I\s*S\s*P\s*O\s*N\s*E|DISPONE)|$)'
+        ),
+        (
+            r'\b(?:EL|LA)\s+DIRECTOR(?:A)?\s+GENERAL\s+DE\s+'
+            r'[A-ZÁÉÍÓÚÑa-záéíóúüñ\s]+?(?=\s+DE\s+LA\s+UNIVERSIDAD|\s+(?:D\s*I\s*S\s*P\s*O\s*N\s*E|DISPONE)|$)'
+        ),
+        (
+            r'\bEL\s+CONSEJO\s+DIRECTIVO\s+DEL\s+DEPARTAMENTO\s+DE\s+'
+            r'[A-ZÃÃ‰ÃÃ“ÃšÃ‘a-zÃ¡Ã©Ã­Ã³ÃºÃ¼Ã±\s]+?(?=\s+(?:D\s*I\s*S\s*P\s*O\s*N\s*E|R\s*E\s*S\s*U\s*E\s*L\s*V\s*E)|$)'
+        ),
+        r'\b(?:EL|LA)\s+RECTOR(?:A)?\s+DE\s+LA\s+UNIVERSIDAD\s+NACIONAL\s+DE\s+LUJ[AÃ]N\b',
+        r'\bEL\s+H\.\s*CONSEJO\s+SUPERIOR\b',
+        r'\bEL\s+CONSEJO\s+DIRECTIVO\b',
+    ]
+
+    for patron in patrones:
+        matches = list(re.finditer(patron, contexto, re.IGNORECASE))
+        if not matches:
+            continue
+
+        emisor = limpiar_emisor_detectado(matches[-1].group(0))
+        emisor = re.sub(r'^(?:EL|LA)\s+', '', emisor, flags=re.IGNORECASE)
+        emisor = re.sub(r'^DIRECTOR(?:A)?\s+GENERAL\b', 'DIRECCION GENERAL', emisor, flags=re.IGNORECASE)
+
+        if re.match(r'^RECTOR(?:A)?\s+DE\s+LA\s+UNIVERSIDAD\s+NACIONAL\s+DE\s+LUJ', emisor, re.IGNORECASE):
+            tipo = "RESOLUCION" if document_type == "resolucion" else "DISPOSICION"
+            return f"{tipo} RECTOR"
+
+        return emisor.upper()
+
+    return None
+
+def inferir_emisor_desde_codigo(document_code, contenido_md):
+    codigo = normalizar_espacios(document_code).upper()
+
+    if codigo in {"R", "RR"} or codigo.startswith("RESREC"):
+        return "RESOLUCION RECTOR"
+
+    if codigo in {"A.U", "AU"}:
+        return "ASAMBLEA UNIVERSITARIA"
+
+    if codigo.startswith("DISPCD"):
+        emisor_encabezado = extraer_emisor_desde_encabezado_md(contenido_md)
+        if emisor_encabezado and "CONSEJO DIRECTIVO" in emisor_encabezado:
+            return emisor_encabezado
+        return "CONSEJO DIRECTIVO"
+
+    if codigo.startswith("RESPHCS") or codigo.startswith("RESHCS"):
+        return "H. CONSEJO SUPERIOR"
+
+    emisores_por_codigo = {
+        "DGAA": "DIRECCION GENERAL DE ASUNTOS ACADEMICOS",
+        "DGAEF": "DIRECCION GENERAL DE ADMINISTRACION ECONOMICO FINANCIERA",
+        "DGP": "DIRECCION GENERAL DE PERSONAL",
+    }
+    if codigo in emisores_por_codigo:
+        return emisores_por_codigo[codigo]
+
+    return None
+
+def limpiar_emisor_detectado(candidato):
+    emisor = normalizar_espacios(candidato)
+    emisor = re.sub(
+        r'\s+(?:DISPCD|RESPCD|RESHCS|RR|DISP|RES|RESOLUCI[Ã“O]N|DISPOSICI[Ã“O]N)\b.*$',
+        '',
+        emisor,
+        flags=re.IGNORECASE
+    )
+    return normalizar_espacios(emisor)
+
+def es_candidato_emisor_ruidoso(candidato):
+    texto = limpiar_emisor_detectado(candidato).lower()
+    if not texto:
+        return True
+    if texto.startswith("departamento de ") and "consejo directivo" not in texto:
+        return True
+    return False
+
+def resolver_issuing_body(entidades_brutas, document_code, contenido_md, document_type):
+    codigo = normalizar_espacios(document_code).upper()
+    issuing_cands = entidades_brutas.get("issuing_body_candidates", [])
+
+    emisor_antes_parte = extraer_emisor_antes_parte_dispositiva(contenido_md, document_type)
+    if emisor_antes_parte:
+        return emisor_antes_parte
+
+    if codigo.startswith("DISPCD"):
+        for candidato in issuing_cands:
+            emisor = limpiar_emisor_detectado(candidato)
+            if re.search(r'\bCONSEJO\s+DIRECTIVO\s+DEL\s+DEPARTAMENTO\s+DE\b', emisor, re.IGNORECASE):
+                return emisor.upper()
+
+    emisor_por_codigo = inferir_emisor_desde_codigo(document_code, contenido_md)
+    if emisor_por_codigo:
+        return emisor_por_codigo
+
+    emisor_encabezado = extraer_emisor_desde_encabezado_md(contenido_md)
+    if emisor_encabezado:
+        return emisor_encabezado
+
+    for candidato in issuing_cands:
+        if not es_candidato_emisor_ruidoso(candidato):
+            return limpiar_emisor_detectado(candidato)
+
+    return "unknown"
+
 def normalizar_ciudad(valor):
     valor = re.sub(r'\s+', ' ', str(valor)).strip(" ,")
     if not valor:
@@ -165,8 +468,7 @@ def procesar_metadatos(json_data, contenido_md):
     # 9. Recuperar entidades faltantes del JSON
     entidades_brutas = json_data.get("detected_entities", {})
 
-    issuing_cands = entidades_brutas.get("issuing_body_candidates", [])
-    issuing_body = issuing_cands[0] if issuing_cands else "unknown"
+    issuing_body = resolver_issuing_body(entidades_brutas, document_code, contenido_md, document_type)
 
     signers = entidades_brutas.get("signers_candidates", [])
     normative_references = entidades_brutas.get("normative_candidates", [])
