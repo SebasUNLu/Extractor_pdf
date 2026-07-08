@@ -6,6 +6,7 @@ import logging
 import sys
 import random
 import concurrent.futures
+import time
 
 # Configuración del log de errores
 logging.basicConfig(
@@ -178,6 +179,14 @@ def procesar_carpeta(ruta_destino, cantidad_aleatoria=None):
     if errores > 0:
         print("Revisa el archivo 'errores_extraccion.log' para más detalles.")
 
+def formatear_tiempo(segundos):
+    """
+    Convierte una cantidad de segundos (float o int) al formato HH:MM:SS
+    """
+    horas, rem = divmod(segundos, 3600)
+    minutos, segundos = divmod(rem, 60)
+    return f"{int(horas):02d}:{int(minutos):02d}:{int(segundos):02d}"
+
 if __name__ == "__main__":
     # Ahora la validación contempla que el segundo parámetro es opcional
     if len(sys.argv) < 2:
@@ -197,4 +206,10 @@ if __name__ == "__main__":
                 print("Error: El segundo parámetro (X) debe ser un número entero válido.")
                 sys.exit(1)
                 
+        inicio = time.time()  
         procesar_carpeta(ruta_carpeta, x_cantidad)
+        # Calculamos el delta de tiempo total
+        tiempo_total = time.time() - inicio
+        
+        # Mostramos el resultado formateado
+        print(f"Proceso terminado en {formatear_tiempo(tiempo_total)} (HH:MM:SS).")

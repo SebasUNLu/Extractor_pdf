@@ -468,7 +468,12 @@ def procesar_metadatos(json_data, contenido_md):
     # 9. Recuperar entidades faltantes del JSON
     entidades_brutas = json_data.get("detected_entities", {})
 
-    issuing_body = resolver_issuing_body(entidades_brutas, document_code, contenido_md, document_type)
+    issuing_body_candidates = entidades_brutas.get("issuing_body_candidates", [])
+    if isinstance(issuing_body_candidates, list) and issuing_body_candidates:
+        issuing_body = issuing_body_candidates
+    else:
+        issuing_body_fallback = resolver_issuing_body(entidades_brutas, document_code, contenido_md, document_type)
+        issuing_body = [issuing_body_fallback] if issuing_body_fallback and issuing_body_fallback != "unknown" else []
 
     signers = entidades_brutas.get("signers_candidates", [])
     normative_references = entidades_brutas.get("normative_candidates", [])
