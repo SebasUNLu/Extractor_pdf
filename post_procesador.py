@@ -3,6 +3,53 @@ import os
 import sys
 import re
 import yaml # Requiere instalar la librería: pip install pyyaml
+import Levenshtein # <-- NUEVO IMPORT
+
+# <-- NUEVA LISTA DE CANDIDATOS FIJOS
+CANDIDATOS_FIJOS = [
+  "El Consejo Directivo Departamental",
+  "El Consejo Directivo Departamental De Ciencias Básicas",
+  "La Directora Decana Del Departamento De Ciencias Básicas",
+  "La Presidente Del Consejo Directivo Departamental De Ciencias Básicas",
+  "El Presidente Del Consejo Directivo Departamental De Ciencias Básicas",
+  "El Consejo Directivo Del Departamento De Ciencias Sociales",
+  "El Director Decano Del Departamento De Ciencias Sociales",
+  "El Presidente Del Consejo Directivo Del Departamento De Ciencias Sociales",
+  "El Director Decano Del Departamento Académico De Ciencias Sociales",
+  "La Vice Directora Decana Del Departamento De Ciencias Sociales",
+  "El Presidente Del Consejo Departamental Del Departamento De Ciencias Sociales",
+  "El Consejo Directivo Del Departamento De Educación",
+  "La Directora Decana Del Departamento De Educación",
+  "La Presidenta Del Consejo Directivo Del Departamento De Educación",
+  "El Director Decano Del Departamento De Educación",
+  "El Presidente Del Consejo Directivo Del Departamento De Educación",
+  "El Director Decano Del Departamento De Educacion",
+  "El Consejo Directivo Del Departamento De Tecnología",
+  "La Directora Decana Del Departamento De Tecnología",
+  "La Vicedirectora Decana Del Departamento De Tecnología",
+  "El Consejo Directivo Del Departamento De Tecnologia",
+  "La Presidenta Del Consejo Directivo Del Departamento De Tecnología",
+  "La Vicerrectora Decana Del Departamento De Tecnología",
+  "La Videdirectora Decana Del Departamento De Tecnología",
+  "La Vidirectora Decana Del Departamento De Tecnología",
+  "La Directora General De Administración Nacional De Luján",
+  "El Director General De Administración Nacional De Luján",
+  "El Director General De Administración Económico Financiera",
+  "El Director General De Extensión",
+  "La Directora De La Dirección De Gestión De Rectorado",
+  "El Director General De Sistemas",
+  "La Dirección De Gestión De Rectorado",
+  "La Dirección General De Asuntos Académicos",
+  "La Asamblea Universitaria De La Universidad Nacional De Luján",
+  "El H. Consejo Superior De La Universidad Nacional De Luján",
+  "El Presidente Del H. Consejo Superior De La Universidad Nacional De Luján",
+  "El Rector De La Universidad Nacional De Luján",
+  "El Secretario Académico De La Universidad Nacional De Luján",
+  "El Secretario De Administración De La Universidad Nacional De Luján",
+  "El Secretario De Ciencia Y Tecnología De La Universidad Nacional De Luján",
+  "El Secretario De Posgrado, De Cooperación Internacional E Internacionalización De La Universidad Nacional De Luján",
+  "El Secretario De Bienestar Universitario Y Asuntos Estudiantiles De La Universidad Nacional De Luján"
+]
 
 def extraer_codigo_desde_encabezado_md(contenido_md):
     """
@@ -466,24 +513,51 @@ def procesar_metadatos(json_data, contenido_md):
         signature_mode = "embedded"
 
     # 9. Recuperar entidades faltantes del JSON
+    # 9. Recuperar entidades faltantes del JSON
     entidades_brutas = json_data.get("detected_entities", {})
 
+    # Capturamos el origen (ya sean candidatos o el fallback)
     issuing_body_candidates = entidades_brutas.get("issuing_body_candidates", [])
     if isinstance(issuing_body_candidates, list) and issuing_body_candidates:
-        issuing_body = issuing_body_candidates
+        candidatos_brutos = issuing_body_candidates
     else:
         issuing_body_fallback = resolver_issuing_body(entidades_brutas, document_code, contenido_md, document_type)
-        issuing_body = [issuing_body_fallback] if issuing_body_fallback and issuing_body_fallback != "unknown" else []
-
-    signers = entidades_brutas.get("signers_candidates", [])
+        candidatos_brutos = [issuing_body_fallback] if issuing_body_fallback and issuing_body_fallback != "unknown" else []
     normative_references = entidades_brutas.get("normative_candidates", [])
 
+    # PROCESAMIENTO CON LEVENSHTEIN DISTANCE
+    issuing_body = "unknown"
+    for cand in candidatos_brutos:
+        cand_clean = normalizar_espacios(cand).lower()
+        if not cand_clean or cand_clean == "unknown":
+            continue
+            
+        mejor_match = None
+        distancia_minima = float('inf')
+        
+        # Comparamos contra cada opción fija para hallar el de menor distancia de edición
+        for fijo in CANDIDATOS_FIJOS:
+            fijo_clean = normalizar_espacios(fijo).lower()
+            dist = Levenshtein.distance(cand_clean, fijo_clean)
+            
+            if dist < distancia_minima:
+                distancia_minima = dist
+                mejor_match = fijo
+        
+        if mejor_match and mejor_match not in issuing_body:
+            issuing_body = mejor_match
+
+    # Si por algún motivo quedó vacío, preservamos la consistencia
+    if not issuing_body:
+        issuing_body = "unknown"
     referenced_entities = {
         "persons": entidades_brutas.get("person_candidates", []),
         "academic_units": entidades_brutas.get("academic_unit_candidates", []),
         "careers": entidades_brutas.get("career_candidates", []),
         "courses": entidades_brutas.get("course_candidates", [])
     }
+
+    signers = entidades_brutas.get("signers_candidates", [])
     
     # CONSTRUCCIÓN DEL DICCIONARIO CANÓNICO
     yaml_dict = {
