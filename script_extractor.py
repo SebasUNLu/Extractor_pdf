@@ -562,6 +562,7 @@ def extraer_a_markdown_directo(buffer_pdf, nombre_original):
     patron_hoja_firmas = re.compile(r'\bHoja\s+de\s+firmas\b', re.IGNORECASE)
     
     titulo_encontrado = None
+    ultimo_texto_unido = None  # <-- AGREGAR ESTA LÍNEA
 
     metadata_json = {
         "source_pdf": nombre_original,
@@ -597,7 +598,7 @@ def extraer_a_markdown_directo(buffer_pdf, nombre_original):
             if widget.field_type == fitz.PDF_WIDGET_TYPE_SIGNATURE:
                 metadata_json["source_system_hint"] = "electronic"
         
-        margen_superior = cp.y0 + (alto * 0.06)
+        margen_superior = cp.y0 + (alto * 0.1)
         margen_inferior = alto
 
         tabs = pagina.find_tables(strategy="lines_strict", snap_tolerance=4)
@@ -759,9 +760,29 @@ def extraer_a_markdown_directo(buffer_pdf, nombre_original):
                 texto_unido_plano = re.sub(r'\s{2,}', ' ', texto_unido_plano).strip()
 
                 es_bloque_firma = False
+                fue_unido = False # NUEVO
 
                 if texto_unido_plano:
+                    PREFIJOS_CONECTORES_UNION = ("de ", "departamento ")
+
+                    # <-- AGREGAR DESDE AQUÍ -->
+                    if texto_unido_plano.lower().startswith(PREFIJOS_CONECTORES_UNION):
+                        print("\n" + "="*40)
+                        print("[REVISIÓN MANUAL] BLOQUE ACTUAL:")
+                        print(texto_unido_plano)
+                        if ultimo_texto_unido:
+                            print("-" * 40)
+                            print("[REVISIÓN MANUAL] BLOQUE ANTERIOR:")
+                            print(ultimo_texto_unido)
+                        print("="*40 + "\n")
+                    # <-- HASTA AQUÍ -->
                     
+                    # <-- REEMPLAZAR EL INICIO DEL ENTORNO 'if texto_unido_plano:' CON ESTO -->
+                    texto_original_bloque = texto_unido_plano
+                    if texto_unido_plano.lower().startswith(PREFIJOS_CONECTORES_UNION) and ultimo_texto_unido:
+                        texto_unido_plano = ultimo_texto_unido + " " + texto_unido_plano
+                        fue_unido = True
+
                     if patron_hoja_firmas.search(texto_unido_plano):
                         metadata_json["global_hints"]["has_signature_page"] = True
 
@@ -770,7 +791,12 @@ def extraer_a_markdown_directo(buffer_pdf, nombre_original):
                         primer_bloque_pagina = False
                         continue
 
-                    textos_bloques_pagina.append(texto_unido_plano)
+                    # Modificar la inserción en textos_bloques_pagina para evitar duplicados
+                    if fue_unido and textos_bloques_pagina:
+                        textos_bloques_pagina[-1] = textos_bloques_pagina[-1] + " " + texto_original_bloque
+                    else:
+                        textos_bloques_pagina.append(texto_original_bloque)
+                    # <-- HASTA AQUÍ -->
                     
                     match_norma = patron_titulo_norma.search(texto_unido_plano)
                     norma_legacy = None if match_norma else extraer_titulo_norma_legacy(texto_unido_plano)
@@ -806,6 +832,13 @@ def extraer_a_markdown_directo(buffer_pdf, nombre_original):
                         if "Departamento" in emisor and emisor not in metadata_json["detected_entities"]["academic_unit_candidates"]:
                             metadata_json["detected_entities"]["academic_unit_candidates"].append(emisor)
 
+                    # <-- AGREGAR ESTO AQUÍ CORREGIDO -->
+                    if fue_unido:
+                        emisor_unificado = texto_unido_plano.title()
+                        if emisor_unificado not in metadata_json["detected_entities"]["issuing_body_candidates"]:
+                            metadata_json["detected_entities"]["issuing_body_candidates"].append(emisor_unificado)
+                    # <-- HASTA AQUÍ -->
+
                     es_firma_tradicional = False
                     matches_firmantes = list(patron_firmante.finditer(texto_unido_plano))
                     matches_firmantes.extend(buscar_firmantes_sin_titulo(texto_unido_plano, patron_firmante_sin_titulo))
@@ -813,7 +846,7 @@ def extraer_a_markdown_directo(buffer_pdf, nombre_original):
                         if not es_texto_firma_tradicional_valido(texto_unido_plano, match):
                             continue
                         firmante, rol_en_linea = extraer_nombre_y_rol_firmante(match)
-                        if not any(f.get("name") == firmante for f in metadata_json["detected_entities"]["signers_candidates"]):
+                        if not any(f.get("name") == firmante for f in metadata_json["detected_entities"]["signers_candidates"]) and len(firmante) > 2:
                             metadata_json["detected_entities"]["signers_candidates"].append({
                                 "name": firmante,
                                 "role": rol_en_linea if es_rol_firmante_valido(rol_en_linea) else "unknown"
@@ -894,6 +927,11 @@ def extraer_a_markdown_directo(buffer_pdf, nombre_original):
                         if cod not in metadata_json["global_hints"]["auxiliary_codes"]:
                             metadata_json["global_hints"]["auxiliary_codes"].append(cod)
                             metadata_json["global_hints"]["has_auxiliary_codes"] = True
+                    # <-- AGREGAR ESTAS LÍNEAS JUSTO AQUÍ -->
+                    ultimo_texto_unido = ultimo_texto_unido + " " + texto_original_bloque if fue_unido else texto_original_bloque
+                    if fue_unido:
+                        texto_unido_plano = texto_original_bloque
+                    # <-- FIN DE LÍNEAS AGREGADAS -->
 
                 if not titulo_encontrado:
                     match = patron_titulo_norma.search(texto_unido_plano)
@@ -1047,7 +1085,12 @@ def extraer_a_markdown_directo(buffer_pdf, nombre_original):
                                 primer_bloque_pagina = False
                                 continue
                     
-                    contenido_final.append(texto_unido)
+                    # <-- REEMPLAZAR LA INSERCIÓN FINAL CON ESTO -->
+                    if fue_unido and contenido_final:
+                        contenido_final[-1] = contenido_final[-1].rstrip() + " " + texto_unido
+                    else:
+                        contenido_final.append(texto_unido)
+                    # <-- HASTA AQUÍ -->
                 primer_bloque_pagina = False
 
         if firmas_pagina:
@@ -1078,7 +1121,7 @@ def extraer_a_markdown_directo(buffer_pdf, nombre_original):
                     if not rol:
                         candidatos_rol = []
                         if idx + 1 < len(lineas): candidatos_rol.append(lineas[idx + 1])
-                        if idx - 1 >= 0: candidatos_rol.append(lineas[idx - 1])
+                        if idx - 1 >= 0: candidatos_rol.append(lineas[idx - 3])
                         
                         for posible_rol in candidatos_rol:
                             if patron_firmante.search(posible_rol) or buscar_firmantes_sin_titulo(posible_rol, patron_firmante_sin_titulo): continue
