@@ -68,6 +68,25 @@ def es_contexto_titulo_norma(texto):
         return False
     return not re.search(r'\b(visto|considerando|articulo|artículo|registe|registrese|regístrese)\b', texto, re.IGNORECASE)
 
+PALABRAS_EMISOR = r'CONSEJO|DEPARTAMENTO|RECTOR|DECANO|DIRECTOR|DIRECCI[OÓ]N|SECRETAR[IÍ]A|UNIVERSIDAD|CENTRO\s+DE|COMISI[OÓ]N|VICERRECTOR'
+
+def es_candidato_emisor_valido(texto):
+    """
+    Filtra candidatos a issuing_body: descarta texto de cierre/articulado
+    y exige que contenga una palabra organizacional reconocible.
+    """
+    if not texto:
+        return False
+
+    texto = re.sub(r'\s+', ' ', texto).strip()
+    if not texto or len(texto) > 150:
+        return False
+
+    if re.search(r'\bART[IÍ]CULO\b|regi[sś]trese|comuni[qc]uese|archi[vb]ese|\bVISTO\b|\bCONSIDERANDO\b', texto, re.IGNORECASE):
+        return False
+
+    return bool(re.search(PALABRAS_EMISOR, texto, re.IGNORECASE))
+
 def agregar_candidato_documento(metadata_json, candidato_codigo, es_principal=False):
     candidatos = metadata_json["detected_entities"]["document_code_candidates"]
     if candidato_codigo in candidatos:
@@ -593,6 +612,7 @@ def extraer_a_markdown_directo(buffer_pdf, nombre_original):
     for i, pagina in enumerate(doc):
         cp = pagina.cropbox
         alto = cp.height
+        ultimo_texto_unido = None
 
         for widget in pagina.widgets(): 
             if widget.field_type == fitz.PDF_WIDGET_TYPE_SIGNATURE:
@@ -651,6 +671,9 @@ def extraer_a_markdown_directo(buffer_pdf, nombre_original):
         
         textos_bloques_pagina = []
         firmas_pagina = [] 
+
+        bloque_anterior = ""
+        bloque_previo_anterior = ""
 
         for idx, b in enumerate(bloques):
             if b["type"] != 0 or idx in indices_saltados: continue
@@ -763,19 +786,7 @@ def extraer_a_markdown_directo(buffer_pdf, nombre_original):
                 fue_unido = False # NUEVO
 
                 if texto_unido_plano:
-                    PREFIJOS_CONECTORES_UNION = ("de ", "departamento ")
-
-                    # <-- AGREGAR DESDE AQUÍ -->
-                    if texto_unido_plano.lower().startswith(PREFIJOS_CONECTORES_UNION):
-                        print("\n" + "="*40)
-                        print("[REVISIÓN MANUAL] BLOQUE ACTUAL:")
-                        print(texto_unido_plano)
-                        if ultimo_texto_unido:
-                            print("-" * 40)
-                            print("[REVISIÓN MANUAL] BLOQUE ANTERIOR:")
-                            print(ultimo_texto_unido)
-                        print("="*40 + "\n")
-                    # <-- HASTA AQUÍ -->
+                    PREFIJOS_CONECTORES_UNION = ("de ", "departamento ", "universidad ", "académico ", "academico ")
                     
                     # <-- REEMPLAZAR EL INICIO DEL ENTORNO 'if texto_unido_plano:' CON ESTO -->
                     texto_original_bloque = texto_unido_plano
@@ -827,17 +838,17 @@ def extraer_a_markdown_directo(buffer_pdf, nombre_original):
                     for match in patron_emisor.finditer(texto_unido_plano):
                         emisor = match.group(1).strip().title()
                         es_departamento_suelto = emisor.startswith("Departamento De ")
-                        if not es_departamento_suelto and emisor not in metadata_json["detected_entities"]["issuing_body_candidates"]:
+                        if (not es_departamento_suelto and es_candidato_emisor_valido(emisor)
+                                and emisor not in metadata_json["detected_entities"]["issuing_body_candidates"]):
                             metadata_json["detected_entities"]["issuing_body_candidates"].append(emisor)
                         if "Departamento" in emisor and emisor not in metadata_json["detected_entities"]["academic_unit_candidates"]:
                             metadata_json["detected_entities"]["academic_unit_candidates"].append(emisor)
 
-                    # <-- AGREGAR ESTO AQUÍ CORREGIDO -->
                     if fue_unido:
                         emisor_unificado = texto_unido_plano.title()
-                        if emisor_unificado not in metadata_json["detected_entities"]["issuing_body_candidates"]:
+                        if (es_candidato_emisor_valido(emisor_unificado)
+                                and emisor_unificado not in metadata_json["detected_entities"]["issuing_body_candidates"]):
                             metadata_json["detected_entities"]["issuing_body_candidates"].append(emisor_unificado)
-                    # <-- HASTA AQUÍ -->
 
                     es_firma_tradicional = False
                     matches_firmantes = list(patron_firmante.finditer(texto_unido_plano))
@@ -911,8 +922,28 @@ def extraer_a_markdown_directo(buffer_pdf, nombre_original):
                         info_pagina["markers"].add("VISTO")
                     if patron_considerando.search(texto_unido_plano):
                         info_pagina["markers"].add("CONSIDERANDO")
-                    if patron_resuelve.search(texto_unido_plano):
+                    match_resuelve = patron_resuelve.search(texto_unido_plano)
+                    if match_resuelve:
                         info_pagina["markers"].add("RESUELVE")
+
+                        if not fue_unido:
+                            candidato_emisor = None
+
+                            prefijo = texto_unido_plano[:match_resuelve.start()].strip()
+                            if es_candidato_emisor_valido(prefijo):
+                                candidato_emisor = prefijo
+                            elif es_candidato_emisor_valido(bloque_anterior):
+                                candidato_emisor = bloque_anterior
+                            elif bloque_anterior and bloque_previo_anterior:
+                                combinado = f"{bloque_previo_anterior} {bloque_anterior}".strip()
+                                if es_candidato_emisor_valido(combinado):
+                                    candidato_emisor = combinado
+
+                            if candidato_emisor:
+                                emisor_previo = re.sub(r'\s+', ' ', candidato_emisor).strip().title()
+                                candidatos = metadata_json["detected_entities"]["issuing_body_candidates"]
+                                if emisor_previo not in candidatos:
+                                    candidatos.append(emisor_previo)
                     if patron_articulo.search(texto_unido_plano):
                         info_pagina["markers"].add("ARTÍCULO")
                         
@@ -1085,12 +1116,12 @@ def extraer_a_markdown_directo(buffer_pdf, nombre_original):
                                 primer_bloque_pagina = False
                                 continue
                     
-                    # <-- REEMPLAZAR LA INSERCIÓN FINAL CON ESTO -->
                     if fue_unido and contenido_final:
                         contenido_final[-1] = contenido_final[-1].rstrip() + " " + texto_unido
                     else:
                         contenido_final.append(texto_unido)
-                    # <-- HASTA AQUÍ -->
+                    bloque_previo_anterior = bloque_anterior
+                    bloque_anterior = texto_unido_plano
                 primer_bloque_pagina = False
 
         if firmas_pagina:

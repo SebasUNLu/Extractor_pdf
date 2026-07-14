@@ -8,6 +8,7 @@ import Levenshtein # <-- NUEVO IMPORT
 # <-- NUEVA LISTA DE CANDIDATOS FIJOS
 CANDIDATOS_FIJOS = [
   "El Consejo Directivo Departamental",
+  "El Centro De Investigación Docencia y Extensión En Producción Agropecuaria De La Universidad Nacional De Luján",
   "El Consejo Directivo Departamental De Ciencias Básicas",
   "La Directora Decana Del Departamento De Ciencias Básicas",
   "La Presidente Del Consejo Directivo Departamental De Ciencias Básicas",

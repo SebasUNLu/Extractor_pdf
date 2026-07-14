@@ -196,7 +196,7 @@ def procesar_carpeta(ruta_destino, cantidad_aleatoria=None):
     MAIN_STOP_EVENT = multiprocessing.Event()
 
     if len(archivos) > 1:
-        max_workers = max(1, min(len(archivos), (os.cpu_count() or 1) - 1))
+        max_workers = max(1, min(len(archivos), (os.cpu_count() or 1) - 3))
         print(f"--- Iniciando procesamiento multinúcleo con {max_workers} workers ---")
 
         # El Executor se abre normalmente
