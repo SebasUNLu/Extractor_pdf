@@ -5,6 +5,18 @@ import re
 import yaml # Requiere instalar la librería: pip install pyyaml
 import Levenshtein # <-- NUEVO IMPORT
 
+def _representar_str_yaml(dumper, data):
+    """
+    Strings con saltos de linea reales (ej. content_markdown) se emiten en
+    bloque literal ('|'), preservando cada linea tal cual sin envolver por
+    ancho. Strings de una sola linea (ej. issuing_body) usan el estilo por
+    defecto, combinado con un width grande para que nunca se corten a la mitad.
+    """
+    style = '|' if '\n' in data else None
+    return dumper.represent_scalar('tag:yaml.org,2002:str', data, style=style)
+
+yaml.add_representer(str, _representar_str_yaml)
+
 # <-- NUEVA LISTA DE CANDIDATOS FIJOS
 CANDIDATOS_FIJOS = [
   "El Consejo Directivo Departamental",
@@ -656,7 +668,7 @@ def generar_documento_yaml_final(ruta_json, ruta_md):
     ruta_salida = os.path.join(os.path.dirname(ruta_md), f"{nombre_base}_canonico.yaml")
 
     with open(ruta_salida, "w", encoding="utf-8") as f:
-        yaml.dump(datos_completos, f, allow_unicode=True, sort_keys=False, default_flow_style=False)
+        yaml.dump(datos_completos, f, allow_unicode=True, sort_keys=False, default_flow_style=False, width=1000000)
     
     print(f"Éxito: Documento YAML consolidado generado en '{ruta_salida}'")
 

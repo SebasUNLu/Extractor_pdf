@@ -68,12 +68,12 @@ def es_contexto_titulo_norma(texto):
         return False
     return not re.search(r'\b(visto|considerando|articulo|artículo|registe|registrese|regístrese)\b', texto, re.IGNORECASE)
 
-PALABRAS_EMISOR = r'CONSEJO|DEPARTAMENTO|RECTOR|DECANO|DIRECTOR|DIRECCI[OÓ]N|SECRETAR[IÍ]A|UNIVERSIDAD|CENTRO\s+DE|COMISI[OÓ]N|VICERRECTOR'
-
 def es_candidato_emisor_valido(texto):
     """
-    Filtra candidatos a issuing_body: descarta texto de cierre/articulado
-    y exige que contenga una palabra organizacional reconocible.
+    Sanity check para candidatos a issuing_body extraidos justo antes de
+    RESUELVE/DISPONE/DECRETA: descarta vacios, texto desmedido o texto que
+    en realidad es cierre/articulado (senal de que el bloque tomado no es
+    el emisor, sino un fragmento de otra parte del documento).
     """
     if not texto:
         return False
@@ -85,7 +85,7 @@ def es_candidato_emisor_valido(texto):
     if re.search(r'\bART[IÍ]CULO\b|regi[sś]trese|comuni[qc]uese|archi[vb]ese|\bVISTO\b|\bCONSIDERANDO\b', texto, re.IGNORECASE):
         return False
 
-    return bool(re.search(PALABRAS_EMISOR, texto, re.IGNORECASE))
+    return True
 
 def agregar_candidato_documento(metadata_json, candidato_codigo, es_principal=False):
     candidatos = metadata_json["detected_entities"]["document_code_candidates"]
@@ -618,7 +618,7 @@ def extraer_a_markdown_directo(buffer_pdf, nombre_original):
             if widget.field_type == fitz.PDF_WIDGET_TYPE_SIGNATURE:
                 metadata_json["source_system_hint"] = "electronic"
         
-        margen_superior = cp.y0 + (alto * 0.1)
+        margen_superior = cp.y0 + (alto * 0.06)
         margen_inferior = alto
 
         tabs = pagina.find_tables(strategy="lines_strict", snap_tolerance=4)
@@ -793,6 +793,7 @@ def extraer_a_markdown_directo(buffer_pdf, nombre_original):
                     if texto_unido_plano.lower().startswith(PREFIJOS_CONECTORES_UNION) and ultimo_texto_unido:
                         texto_unido_plano = ultimo_texto_unido + " " + texto_unido_plano
                         fue_unido = True
+                    texto_unido_completo = texto_unido_plano
 
                     if patron_hoja_firmas.search(texto_unido_plano):
                         metadata_json["global_hints"]["has_signature_page"] = True
@@ -837,18 +838,8 @@ def extraer_a_markdown_directo(buffer_pdf, nombre_original):
 
                     for match in patron_emisor.finditer(texto_unido_plano):
                         emisor = match.group(1).strip().title()
-                        es_departamento_suelto = emisor.startswith("Departamento De ")
-                        if (not es_departamento_suelto and es_candidato_emisor_valido(emisor)
-                                and emisor not in metadata_json["detected_entities"]["issuing_body_candidates"]):
-                            metadata_json["detected_entities"]["issuing_body_candidates"].append(emisor)
                         if "Departamento" in emisor and emisor not in metadata_json["detected_entities"]["academic_unit_candidates"]:
                             metadata_json["detected_entities"]["academic_unit_candidates"].append(emisor)
-
-                    if fue_unido:
-                        emisor_unificado = texto_unido_plano.title()
-                        if (es_candidato_emisor_valido(emisor_unificado)
-                                and emisor_unificado not in metadata_json["detected_entities"]["issuing_body_candidates"]):
-                            metadata_json["detected_entities"]["issuing_body_candidates"].append(emisor_unificado)
 
                     es_firma_tradicional = False
                     matches_firmantes = list(patron_firmante.finditer(texto_unido_plano))
@@ -1121,7 +1112,7 @@ def extraer_a_markdown_directo(buffer_pdf, nombre_original):
                     else:
                         contenido_final.append(texto_unido)
                     bloque_previo_anterior = bloque_anterior
-                    bloque_anterior = texto_unido_plano
+                    bloque_anterior = texto_unido_completo
                 primer_bloque_pagina = False
 
         if firmas_pagina:
