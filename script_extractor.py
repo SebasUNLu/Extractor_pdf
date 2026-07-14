@@ -540,7 +540,14 @@ def extraer_a_markdown_directo(buffer_pdf, nombre_original):
 
     # OPTIMIZACIÓN: Captura EXP-LUJ, ACTDB-LUJ, EXPP, DISPCD-TLUJ, DISPCD-T, RESHCS, etc.
     patron_codigo_auxiliar = re.compile(
-        r'\b(EXP-LUJ|ACTDB-LUJ|EXPP|DISPCD-TLUJ|DISPCD-T|RESHCS-LUJ|RESPHCS|SEACAD|[A-Z]{3,}(?:-[A-Z0-9]+)*)\s*(?:[:\-–—]|N[°º.\s]+)?\s*\d+[\/\-]\d{2,4}\b', 
+        r'\b(EXP-LUJ|ACTDB-LUJ|EXPP|DISPCD-TLUJ|DISPCD-T|RESHCS-LUJ|RESPHCS|SEACAD|[A-Z]{3,}(?:-[A-Z0-9]+)*)\s*(?:[:\-–—]|N[°º.\s]+)?\s*\d+[\/\-]\d{2,4}\b',
+        re.IGNORECASE
+    )
+
+    # Ordenes de compra (estructura muy distinta a Resolucion/Disposicion):
+    # "Orden de Compra 305/2025" o "Orden de Compra N°: 11/25"
+    patron_orden_compra = re.compile(
+        r'\bORDEN\s+DE\s+COMPRA\b\s*(?:N[°ºRO.:\s]*)?\s*(\d{1,6})\s*/\s*(\d{2,4})\b',
         re.IGNORECASE
     )
     
@@ -581,6 +588,7 @@ def extraer_a_markdown_directo(buffer_pdf, nombre_original):
     patron_hoja_firmas = re.compile(r'\bHoja\s+de\s+firmas\b', re.IGNORECASE)
     
     titulo_encontrado = None
+    orden_compra_encontrada = None
     ultimo_texto_unido = None  # <-- AGREGAR ESTA LÍNEA
 
     metadata_json = {
@@ -949,6 +957,15 @@ def extraer_a_markdown_directo(buffer_pdf, nombre_original):
                         if cod not in metadata_json["global_hints"]["auxiliary_codes"]:
                             metadata_json["global_hints"]["auxiliary_codes"].append(cod)
                             metadata_json["global_hints"]["has_auxiliary_codes"] = True
+
+                    if not titulo_encontrado and not orden_compra_encontrada:
+                        match_oc = patron_orden_compra.search(texto_unido_plano)
+                        if match_oc:
+                            numero_oc = match_oc.group(1)
+                            anio_oc = match_oc.group(2)
+                            if len(anio_oc) == 2:
+                                anio_oc = "20" + anio_oc
+                            orden_compra_encontrada = (numero_oc, anio_oc)
                     # <-- AGREGAR ESTAS LÍNEAS JUSTO AQUÍ -->
                     ultimo_texto_unido = ultimo_texto_unido + " " + texto_original_bloque if fue_unido else texto_original_bloque
                     if fue_unido:
@@ -1180,6 +1197,9 @@ def extraer_a_markdown_directo(buffer_pdf, nombre_original):
             resto_doc = re.sub(r'[\s\/\-\:\.]+', '_', resto_doc).strip('_')
             
             metadata_json["document_id_hint"] = f"{tipo_doc}_{resto_doc}"
+    elif orden_compra_encontrada:
+        numero_oc, anio_oc = orden_compra_encontrada
+        metadata_json["document_id_hint"] = f"oc_{numero_oc}_{anio_oc}"
 
     # Prioridad: si el PDF ya fue clasificado como escaneo puro en la validación previa,
     # no debe caer aquí como documento especial.

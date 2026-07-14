@@ -451,13 +451,17 @@ def procesar_metadatos(json_data, contenido_md):
         document_type = "resolucion"
     elif doc_id_hint.startswith("disp_"):
         document_type = "disposicion"
-    
+    elif doc_id_hint.startswith("oc_"):
+        document_type = "orden_compra"
+
     # Prioridad 2: Inspección de la primera línea del MD (títulos #)
     elif "resolución" in primera_linea or "resolucion" in primera_linea:
         document_type = "resolucion"
     elif "disposición" in primera_linea or "disposicion" in primera_linea:
         document_type = "disposicion"
-    
+    elif "orden de compra" in primera_linea:
+        document_type = "orden_compra"
+
     else:
         # Prioridad 3: Lógica de respaldo en candidatos detectados
         candidates = json_data.get("detected_entities", {}).get("document_code_candidates", [])
