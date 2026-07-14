@@ -389,6 +389,8 @@ def campos_metadata_incompletos(metadata_json):
         basic["document_type"] = "resolucion"
     elif doc_hint.startswith("disp_"):
         basic["document_type"] = "disposicion"
+    elif doc_hint.startswith("oc_"):
+        basic["document_type"] = "orden_compra"
     else:
         basic["document_type"] = "unknown"
 
@@ -540,7 +542,7 @@ def extraer_a_markdown_directo(buffer_pdf, nombre_original):
 
     # OPTIMIZACIÓN: Captura EXP-LUJ, ACTDB-LUJ, EXPP, DISPCD-TLUJ, DISPCD-T, RESHCS, etc.
     patron_codigo_auxiliar = re.compile(
-        r'\b(EXP-LUJ|ACTDB-LUJ|EXPP|DISPCD-TLUJ|DISPCD-T|RESHCS-LUJ|RESPHCS|SEACAD|[A-Z]{3,}(?:-[A-Z0-9]+)*)\s*(?:[:\-–—]|N[°º.\s]+)?\s*\d+[\/\-]\d{2,4}\b',
+        r'\b(EXP-LUJ|ACTDB-LUJ|EXPP|DISPCD-TLUJ|DISPCD-T|RESHCS-LUJ|RESPHCS|SEACAD|[A-Z]{3,}(?:-[A-Z0-9]+)*)\s*(?:[:\-–—]|N[°º.:\s]+)?\s*\d+[\/\-]\d{2,4}\b',
         re.IGNORECASE
     )
 
@@ -548,6 +550,13 @@ def extraer_a_markdown_directo(buffer_pdf, nombre_original):
     # "Orden de Compra 305/2025" o "Orden de Compra N°: 11/25"
     patron_orden_compra = re.compile(
         r'\bORDEN\s+DE\s+COMPRA\b\s*(?:N[°ºRO.:\s]*)?\s*(\d{1,6})\s*/\s*(\d{2,4})\b',
+        re.IGNORECASE
+    )
+
+    # Fallback para ordenes de compra donde el numero de OC no es alcanzable:
+    # "EXP-LUJ N°: 916/2024"
+    patron_expediente_luj = re.compile(
+        r'\bEXP-LUJ\b\s*(?:N[°ºRO.:\s]*)?\s*0*(\d+)\s*[\/\-]\s*(\d{2,4})\b',
         re.IGNORECASE
     )
     
@@ -589,6 +598,7 @@ def extraer_a_markdown_directo(buffer_pdf, nombre_original):
     
     titulo_encontrado = None
     orden_compra_encontrada = None
+    expediente_encontrada = None
     ultimo_texto_unido = None  # <-- AGREGAR ESTA LÍNEA
 
     metadata_json = {
@@ -616,7 +626,42 @@ def extraer_a_markdown_directo(buffer_pdf, nombre_original):
         },
         "warnings": []
     }
-    
+
+    def registrar_hints_desde_texto(texto):
+        """
+        Escanea auxiliary_codes / numero de orden de compra / numero de
+        expediente en un texto dado. Se usa tanto para bloques normales como
+        para texto embebido en tablas detectadas (que de otra forma nunca
+        llega a estos regex).
+        """
+        nonlocal orden_compra_encontrada, expediente_encontrada
+        if not texto:
+            return
+
+        for m in patron_codigo_auxiliar.finditer(texto):
+            cod = m.group(0).strip()
+            if cod not in metadata_json["global_hints"]["auxiliary_codes"]:
+                metadata_json["global_hints"]["auxiliary_codes"].append(cod)
+                metadata_json["global_hints"]["has_auxiliary_codes"] = True
+
+        if not titulo_encontrado and not orden_compra_encontrada:
+            match_oc = patron_orden_compra.search(texto)
+            if match_oc:
+                numero_oc = match_oc.group(1)
+                anio_oc = match_oc.group(2)
+                if len(anio_oc) == 2:
+                    anio_oc = "20" + anio_oc
+                orden_compra_encontrada = (numero_oc, anio_oc)
+
+        if not titulo_encontrado and not orden_compra_encontrada and not expediente_encontrada:
+            match_exp = patron_expediente_luj.search(texto)
+            if match_exp:
+                numero_exp = match_exp.group(1)
+                anio_exp = match_exp.group(2)
+                if len(anio_exp) == 2:
+                    anio_exp = "20" + anio_exp
+                expediente_encontrada = (numero_exp, anio_exp)
+
     for i, pagina in enumerate(doc):
         cp = pagina.cropbox
         alto = cp.height
@@ -718,6 +763,14 @@ def extraer_a_markdown_directo(buffer_pdf, nombre_original):
                 if rect_tabla.intersects(rect_bloque):
                     if idx_tab not in tablas_procesadas:
                         df = tabs.tables[idx_tab].to_pandas().fillna("")
+                        if not df.empty:
+                            texto_tabla_plano = " ".join(
+                                str(v).strip() for v in
+                                (list(df.columns) + df.values.flatten().tolist())
+                                if str(v).strip()
+                            )
+                            texto_tabla_plano = re.sub(r'\s{2,}', ' ', texto_tabla_plano).strip()
+                            registrar_hints_desde_texto(texto_tabla_plano)
                         if not (df.empty or len(df.columns) < 2):
                             try:
                                 contenido_final.append("\n" + df.to_markdown(index=False) + "\n")
@@ -951,21 +1004,7 @@ def extraer_a_markdown_directo(buffer_pdf, nombre_original):
                         metadata_json["global_hints"]["has_annexes"] = True
                         
                     # PROCESAMIENTO REESCRITO: Almacena el código completo encontrado (ej: DISPCD-TLUJ: 0000352-23)
-                    matches_aux = patron_codigo_auxiliar.finditer(texto_unido_plano)
-                    for m in matches_aux:
-                        cod = m.group(0).strip()
-                        if cod not in metadata_json["global_hints"]["auxiliary_codes"]:
-                            metadata_json["global_hints"]["auxiliary_codes"].append(cod)
-                            metadata_json["global_hints"]["has_auxiliary_codes"] = True
-
-                    if not titulo_encontrado and not orden_compra_encontrada:
-                        match_oc = patron_orden_compra.search(texto_unido_plano)
-                        if match_oc:
-                            numero_oc = match_oc.group(1)
-                            anio_oc = match_oc.group(2)
-                            if len(anio_oc) == 2:
-                                anio_oc = "20" + anio_oc
-                            orden_compra_encontrada = (numero_oc, anio_oc)
+                    registrar_hints_desde_texto(texto_unido_plano)
                     # <-- AGREGAR ESTAS LÍNEAS JUSTO AQUÍ -->
                     ultimo_texto_unido = ultimo_texto_unido + " " + texto_original_bloque if fue_unido else texto_original_bloque
                     if fue_unido:
@@ -1200,6 +1239,9 @@ def extraer_a_markdown_directo(buffer_pdf, nombre_original):
     elif orden_compra_encontrada:
         numero_oc, anio_oc = orden_compra_encontrada
         metadata_json["document_id_hint"] = f"oc_{numero_oc}_{anio_oc}"
+    elif expediente_encontrada:
+        numero_exp, anio_exp = expediente_encontrada
+        metadata_json["document_id_hint"] = f"oc_exp_{numero_exp}_{anio_exp}"
 
     # Prioridad: si el PDF ya fue clasificado como escaneo puro en la validación previa,
     # no debe caer aquí como documento especial.
