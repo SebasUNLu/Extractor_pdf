@@ -537,7 +537,16 @@ def extraer_a_markdown_directo(buffer_pdf, nombre_original):
     patron_resuelve = re.compile(r'\b(R\s*E\s*S\s*U\s*E\s*L\s*V\s*E\b[\s:]*|D\s*I\s*S\s*P\s*O\s*N\s*E\b[\s:]*|D\s*E\s*C\s*R\s*E\s*T\s*A\b[\s:]*|RESUELVE\b[\s:]*|DISPONE\b[\s:]*|DECRETA\b[\s:]*|Resuelve\b\s*:[\s]*|Dispone\b\s*:[\s]*|Decreta\b\s*:[\s]*)')
     
     patron_articulo = re.compile(r'(?:^|\n)\s*(ART[IÍ]CULO|Art[ií]culo)\s*(\d+)([:\.\-]*\s*)')
-    
+
+    # Separador para articulos que quedaron pegados en un mismo bloque/parrafo
+    # (comun en documentos antiguos): el cierre de un articulo termina en ".-"
+    # y el siguiente empieza justo despues, ej. "...Rectorado.- ARTICULO 3º.-".
+    # patron_articulo solo detecta un ARTICULO al inicio de linea/bloque, asi
+    # que insertamos el salto de linea que falta antes de aplicarlo.
+    patron_cierre_articulo_inline = re.compile(
+        r'(\.-)\s+(?=(?:ART[IÍ]CULO|Art[ií]culo)\s*\d)'
+    )
+
     patron_folio = re.compile(r'^\s*-\s*\d+\s*-\s*$')
     patron_paginacion = re.compile(r'^\s*\d+\s*/\s*\d+\s*$')
     patron_anexo_inicio = re.compile(r'^\s*(ANEXO|Anexo)\b', re.IGNORECASE)
@@ -1060,11 +1069,17 @@ def extraer_a_markdown_directo(buffer_pdf, nombre_original):
                     match = patron_titulo_norma.search(texto_unido_plano)
                     if match and (es_contexto_cierre_norma(texto_unido_plano) or es_contexto_titulo_norma(texto_unido_plano)):
                         titulo_encontrado = f"# {match.group(1).capitalize()} {match.group(2)} - {int(match.group(3))}/{match.group(4)}"
-                        continue
-                    norma_legacy = extraer_titulo_norma_legacy(texto_unido_plano)
-                    if norma_legacy and (es_contexto_cierre_norma(texto_unido_plano) or es_contexto_titulo_norma(texto_unido_plano)):
-                        tipo_norma, codigo_norma, numero_norma, anio_norma = norma_legacy
-                        titulo_encontrado = f"# {tipo_norma} {codigo_norma} - {int(numero_norma)}/{anio_norma}"
+                    if not titulo_encontrado:
+                        norma_legacy = extraer_titulo_norma_legacy(texto_unido_plano)
+                        if norma_legacy and (es_contexto_cierre_norma(texto_unido_plano) or es_contexto_titulo_norma(texto_unido_plano)):
+                            tipo_norma, codigo_norma, numero_norma, anio_norma = norma_legacy
+                            titulo_encontrado = f"# {tipo_norma} {codigo_norma} - {int(numero_norma)}/{anio_norma}"
+                    # Si el bloque es corto, es probable que sea SOLO el titulo/codigo y
+                    # se descarta como antes. Si es largo (ej. el codigo de norma aparece
+                    # pegado al final de un bloque con articulado real, comun en documentos
+                    # antiguos), no se descarta: el titulo ya quedo capturado, pero el
+                    # contenido del bloque debe seguir procesandose normalmente.
+                    if titulo_encontrado and len(texto_unido_plano) <= 250:
                         continue
 
                 if es_anexo:
@@ -1128,10 +1143,11 @@ def extraer_a_markdown_directo(buffer_pdf, nombre_original):
                 
                 if not es_anexo:
                     tiene_encabezado_conocido = bool(
-                        patron_visto.search(texto_unido_plano) or 
-                        patron_considerando.search(texto_unido_plano) or 
-                        patron_resuelve.search(texto_unido_plano) or 
-                        patron_articulo.search(texto_unido_plano)
+                        patron_visto.search(texto_unido_plano) or
+                        patron_considerando.search(texto_unido_plano) or
+                        patron_resuelve.search(texto_unido_plano) or
+                        patron_articulo.search(texto_unido_plano) or
+                        patron_cierre_articulo_inline.search(texto_unido_plano)
                     )
 
                     def procesar_vinetas_inline(texto):
@@ -1167,6 +1183,7 @@ def extraer_a_markdown_directo(buffer_pdf, nombre_original):
                                 return f"\n\n## Parte {encabezado}\n"
                                 
                             t = patron_resuelve.sub(reemplazo_resuelve, t)
+                            t = patron_cierre_articulo_inline.sub(r'\1\n', t)
                             t = patron_articulo.sub(r'\n\n### Artículo \2\n', t)
                             
                             t = re.sub(r'\n{3,}', '\n\n', t)
