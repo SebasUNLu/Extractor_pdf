@@ -24,6 +24,37 @@ def reparar_mojibake(texto):
     except UnicodeError:
         return texto
 
+def reparar_capital_recortada(texto):
+    """
+    Repara el caso de una letra capitular decorativa (ej. una "D" grande de
+    inicio de parrafo) que PyMuPDF extrae como su propio bloque, separada
+    del resto de la palabra. Cuando eso pasa con "DISPOSICION"/"RESOLUCION",
+    el bloque siguiente arranca como "ISPOSICION ..."/"ESOLUCION ...", sin
+    la primera letra, y nunca matchea como titulo del documento.
+    Solo actua sobre este patron muy especifico (bajo riesgo de falso
+    positivo) y solo se usa para la deteccion de titulo, nunca para el
+    contenido que se renderiza en el markdown.
+    """
+    if not texto:
+        return texto
+    if re.match(r'^ISPOSICI[ÓO]N\b', texto, re.IGNORECASE):
+        return "D" + texto
+    if re.match(r'^ESOLUCI[ÓO]N\b', texto, re.IGNORECASE):
+        return "R" + texto
+    return texto
+
+def normalizar_guiones_titulo(texto):
+    """
+    Normaliza guion largo/medio (en dash "-", em dash "—") a guion ASCII "-".
+    Documentos viejos a veces usan estos caracteres en el codigo de norma
+    (ej. "CDD-T" en vez de "CDD-T"), lo que rompe el regex de codigo
+    ([A-Z]{2,}(?:-[A-Z0-9]+)*) al no reconocer el separador. Solo se usa
+    para la deteccion de titulo, nunca para el contenido renderizado.
+    """
+    if not texto:
+        return texto
+    return texto.replace("–", "-").replace("—", "-")
+
 def normalizar_para_regex(texto):
     texto = reparar_mojibake(texto)
     reemplazos = {
@@ -553,7 +584,7 @@ def extraer_a_markdown_directo(buffer_pdf, nombre_original):
     patron_titulo_norma = re.compile(
         r'\b(DISPOSICI[ÓO]N|RESOLUCI[ÓO]N)\b'
         r'(?:\s+(?:(?!\bVISTO\b|\bCONSIDERANDO\b|\bART[IÍ]CULO\b).){0,180}?)?'
-        r'\b([A-Z]{2,}(?:-[A-Z0-9]+)*)\s*:\s*0*(\d+)\s*(?:[\/\-])\s*(\d{2,4})\b',
+        r'\b([A-Z]{2,}(?:-[A-Z0-9]+)*)\s*:\s*(?:N[°ºRO.\s]*)?0*(\d+)\s*(?:[\/\-])\s*(\d{2,4})\b',
         re.IGNORECASE
     )
     
@@ -654,7 +685,7 @@ def extraer_a_markdown_directo(buffer_pdf, nombre_original):
         para texto embebido en tablas detectadas (que de otra forma nunca
         llega a estos regex).
         """
-        nonlocal orden_compra_encontrada, expediente_encontrada
+        nonlocal orden_compra_encontrada, expediente_encontrada, titulo_encontrado
         if not texto:
             return
 
@@ -663,6 +694,17 @@ def extraer_a_markdown_directo(buffer_pdf, nombre_original):
             if cod not in metadata_json["global_hints"]["auxiliary_codes"]:
                 metadata_json["global_hints"]["auxiliary_codes"].append(cod)
                 metadata_json["global_hints"]["has_auxiliary_codes"] = True
+
+        if not titulo_encontrado:
+            texto_para_titulo = normalizar_guiones_titulo(reparar_capital_recortada(texto))
+            match_titulo = patron_titulo_norma.search(texto_para_titulo)
+            if match_titulo and (es_contexto_cierre_norma(texto_para_titulo) or es_contexto_titulo_norma(texto_para_titulo)):
+                titulo_encontrado = f"# {match_titulo.group(1).capitalize()} {match_titulo.group(2)} - {int(match_titulo.group(3))}/{match_titulo.group(4)}"
+            if not titulo_encontrado:
+                norma_legacy = extraer_titulo_norma_legacy(texto_para_titulo)
+                if norma_legacy and (es_contexto_cierre_norma(texto_para_titulo) or es_contexto_titulo_norma(texto_para_titulo)):
+                    tipo_norma, codigo_norma, numero_norma, anio_norma = norma_legacy
+                    titulo_encontrado = f"# {tipo_norma} {codigo_norma} - {int(numero_norma)}/{anio_norma}"
 
         if not titulo_encontrado and not orden_compra_encontrada:
             match_oc = patron_orden_compra.search(texto)
@@ -815,6 +857,14 @@ def extraer_a_markdown_directo(buffer_pdf, nombre_original):
                 rect_bloque = fitz.Rect(x0, y0, x1, y1)
                 
                 if rect_tabla.intersects(rect_bloque):
+                    # El bloque completo (texto_temp) puede contener mucho mas
+                    # texto que lo que PyMuPDF capturo como celdas de la tabla
+                    # (ej. un bloque grande que se solapa apenas con una tabla
+                    # falsa cerca de una firma). Lo escaneamos siempre, para
+                    # no perder titulo/codigos/firmante que de otra forma
+                    # quedarian atrapados sin ser vistos por ningun regex.
+                    registrar_hints_desde_texto(texto_temp)
+                    registrar_firmante_desde_texto(texto_temp)
                     if idx_tab not in tablas_procesadas:
                         df = tabs.tables[idx_tab].to_pandas().fillna("")
                         texto_tabla_plano = " ".join(
@@ -1066,12 +1116,13 @@ def extraer_a_markdown_directo(buffer_pdf, nombre_original):
                     # <-- FIN DE LÍNEAS AGREGADAS -->
 
                 if not titulo_encontrado:
-                    match = patron_titulo_norma.search(texto_unido_plano)
-                    if match and (es_contexto_cierre_norma(texto_unido_plano) or es_contexto_titulo_norma(texto_unido_plano)):
+                    texto_para_titulo = normalizar_guiones_titulo(reparar_capital_recortada(texto_unido_plano))
+                    match = patron_titulo_norma.search(texto_para_titulo)
+                    if match and (es_contexto_cierre_norma(texto_para_titulo) or es_contexto_titulo_norma(texto_para_titulo)):
                         titulo_encontrado = f"# {match.group(1).capitalize()} {match.group(2)} - {int(match.group(3))}/{match.group(4)}"
                     if not titulo_encontrado:
-                        norma_legacy = extraer_titulo_norma_legacy(texto_unido_plano)
-                        if norma_legacy and (es_contexto_cierre_norma(texto_unido_plano) or es_contexto_titulo_norma(texto_unido_plano)):
+                        norma_legacy = extraer_titulo_norma_legacy(texto_para_titulo)
+                        if norma_legacy and (es_contexto_cierre_norma(texto_para_titulo) or es_contexto_titulo_norma(texto_para_titulo)):
                             tipo_norma, codigo_norma, numero_norma, anio_norma = norma_legacy
                             titulo_encontrado = f"# {tipo_norma} {codigo_norma} - {int(numero_norma)}/{anio_norma}"
                     # Si el bloque es corto, es probable que sea SOLO el titulo/codigo y
