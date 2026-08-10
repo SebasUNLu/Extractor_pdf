@@ -272,6 +272,30 @@ def nombre_con_titulo_desde_firma(texto_firma, nombre):
         return re.sub(r'\s+', ' ', match.group(0)).strip()
     return nombre
 
+def _sanear_celda_markdown(valor):
+    """Aplana una celda a una sola linea fisica y escapa el separador '|'."""
+    texto = str(valor).strip()
+    texto = texto.replace('\r\n', ' ').replace('\n', ' ').replace('\r', ' ')
+    texto = re.sub(r'\s{2,}', ' ', texto)
+    texto = texto.replace('|', '\\|')
+    return texto
+
+def formatear_tabla_markdown(df):
+    """
+    Construye una tabla Markdown (GFM) valida a mano: exactamente una linea
+    fisica por fila logica (encabezado, separador, y una por cada fila de
+    datos), sin el wrapping multi-linea de celdas largas que hace
+    `to_markdown()`/tabulate y que rompe el parseo fuera de una terminal.
+    """
+    encabezados = [_sanear_celda_markdown(c) for c in df.columns]
+    filas = [[_sanear_celda_markdown(v) for v in fila] for fila in df.values.tolist()]
+
+    linea_encabezado = "| " + " | ".join(encabezados) + " |"
+    linea_separador = "|" + "|".join(["---"] * len(encabezados)) + "|"
+    lineas_datos = ["| " + " | ".join(fila) + " |" for fila in filas]
+
+    return "\n".join([linea_encabezado, linea_separador] + lineas_datos)
+
 def formatear_bloque_firmas_md(bloque, firmantes):
     """
     Reescribe el bloque ## Firmas usando los roles ya consolidados en el JSON.
@@ -867,6 +891,16 @@ def extraer_a_markdown_directo(buffer_pdf, nombre_original):
                     registrar_firmante_desde_texto(texto_temp)
                     if idx_tab not in tablas_procesadas:
                         df = tabs.tables[idx_tab].to_pandas().fillna("")
+                        try:
+                            header_es_externo = bool(tabs.tables[idx_tab].header.external)
+                        except Exception:
+                            header_es_externo = False
+                        if header_es_externo:
+                            # El encabezado no es parte real de la tabla: PyMuPDF lo
+                            # infirio de texto que esta arriba/afuera de la grilla
+                            # (ej. un titulo de seccion pegado al borde superior de
+                            # la tabla). No debe aparecer como columna de la tabla.
+                            df.columns = [f"Col{i}" for i in range(len(df.columns))]
                         texto_tabla_plano = " ".join(
                             str(v).strip() for v in
                             (list(df.columns) + df.values.flatten().tolist())
@@ -877,8 +911,8 @@ def extraer_a_markdown_directo(buffer_pdf, nombre_original):
                         registrar_firmante_desde_texto(texto_tabla_plano)
                         if not (df.empty or len(df.columns) < 2):
                             try:
-                                contenido_final.append("\n" + df.to_markdown(index=False) + "\n")
-                            except:
+                                contenido_final.append("\n" + formatear_tabla_markdown(df) + "\n")
+                            except Exception:
                                 contenido_final.append("\n" + df.to_csv(sep="|", index=False) + "\n")
                         tablas_procesadas.append(idx_tab)
                     esta_en_tabla = True
